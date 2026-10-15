@@ -89,7 +89,7 @@ module fir_pipelined_engine (
                 if (in_valid_i) begin
                     error_q[0] <= invalid_input;
                     for (i = 0; i < 32; i = i + 1) begin
-                        if (!invalid_input && (tap_count_i > i))
+                        if (!invalid_input && (tap_count_i > i[5:0]))
                             tree0_q[i] <= $signed({{8{product_comb[i][63]}}, product_comb[i]});
                         else
                             tree0_q[i] <= 72'sd0;
