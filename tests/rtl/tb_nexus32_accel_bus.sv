@@ -1,5 +1,7 @@
 `timescale 1ns/1ps
-module tb_nexus32_accel_bus;
+module tb_nexus32_accel_bus #(
+    parameter int LANES = 32
+);
     logic clk = 1'b0;
     logic rst = 1'b1;
     logic req_valid = 1'b0;
@@ -43,7 +45,9 @@ module tb_nexus32_accel_bus;
     end
 
     // Expose internal commit pulse only for the testbench scoreboard.
-    nexus32_accel_bus dut (
+    nexus32_accel_bus #(
+        .LANES(LANES)
+    ) dut (
         .clk_i(clk),
         .rst_i(rst),
         .req_valid_i(req_valid),
@@ -172,19 +176,34 @@ module tb_nexus32_accel_bus;
         if (!err) $fatal(1, "host write to result RAM was not rejected");
         if (!bus_fault_sticky) $fatal(1, "bus fault sticky bit did not set");
 
-        // Now launch a longer block and try to write the owned sample bank.
+        // Test invalid tap count rejection (> LANES) through the bus interface
+        bus_xfer(1'b1, TAP_COUNT_ADDR, 32'(LANES + 1), 4'hf, rd, err);
+        if (err) $fatal(1, "invalid tap count CSR write failed to accept cycle");
+        bus_xfer(1'b1, CTRL_ADDR, 32'd1, 4'hf, rd, err);
+        if (!err) $fatal(1, "invalid tap count START was not rejected with bus error");
+        if (accelerator_busy)
+            $fatal(1, "accelerator entered busy on invalid tap count");
+        if (!accelerator_error)
+            $fatal(1, "accelerator error bit not set on invalid tap count start");
+        // Clear sticky error with soft reset before next test
+        bus_xfer(1'b1, CTRL_ADDR, 32'd2, 4'hf, rd, err);
+        if (err) $fatal(1, "soft reset write failed");
+        if (accelerator_error)
+            $fatal(1, "accelerator error bit not cleared by soft reset");
+
+        // Now launch a max-tap block and try to write the owned sample bank.
         // The attempted write must be rejected and the failed run must not
         // produce another result commit.
-        bus_xfer(1'b1, TAP_COUNT_ADDR, 32'd32, 4'hf, rd, err);
-        if (err) $fatal(1, "32-tap configuration write failed");
+        bus_xfer(1'b1, TAP_COUNT_ADDR, 32'(LANES), 4'hf, rd, err);
+        if (err) $fatal(1, "max-tap configuration write failed");
         bus_xfer(1'b1, CTRL_ADDR, 32'd1, 4'hf, rd, err);
-        if (err) $fatal(1, "32-tap START failed");
+        if (err) $fatal(1, "max-tap START failed");
         if (!accelerator_busy)
             $fatal(1, "accelerator completed unexpectedly before ownership test");
-        bus_xfer(1'b1, SAMPLE_BASE + 20, 32'hdead_beef, 4'hf, rd, err);
+        bus_xfer(1'b1, SAMPLE_BASE + 0, 32'hdead_beef, 4'hf, rd, err);
         if (!err) $fatal(1, "sample write during ownership was not rejected");
         wait_for_done(100, done_seen);
-        if (!done_seen) $fatal(1, "32-tap accelerator did not complete after rejected write");
+        if (!done_seen) $fatal(1, "max-tap accelerator did not complete after rejected write");
         repeat (3) @(negedge clk);
         if (commit_count != 1)
             $fatal(1, "ownership fault should suppress second result commit; count=%0d", commit_count);

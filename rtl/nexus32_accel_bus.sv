@@ -16,7 +16,9 @@
 //   0x10005000..0x10005fff accelerator CSRs
 // Other pages, including sample B at 0x00023000 in the planned map, return an
 // error until their implementation is added. This is not yet the full SoC bus.
-module nexus32_accel_bus (
+module nexus32_accel_bus #(
+    parameter int LANES = 32
+) (
     input  logic              clk_i,
     input  logic              rst_i,
 
@@ -36,6 +38,20 @@ module nexus32_accel_bus (
     output logic              accelerator_done_o,
     output logic              accelerator_error_o
 );
+    generate
+        if (LANES != 4 && LANES != 8 && LANES != 16 && LANES != 32) begin : gen_illegal_lanes
+            LANES_MUST_BE_4_8_16_OR_32 invalid();
+        end
+    endgenerate
+
+    // synthesis translate_off
+    initial begin
+        if (LANES != 4 && LANES != 8 && LANES != 16 && LANES != 32) begin
+            $fatal(1, "ERROR: nexus32_accel_bus LANES=%0d is unsupported; must be 4, 8, 16, or 32", LANES);
+        end
+    end
+    // synthesis translate_on
+
     localparam logic [19:0] PAGE_COEFF  = 20'h00020;
     localparam logic [19:0] PAGE_SAMPLE = 20'h00021;
     localparam logic [19:0] PAGE_RESULT = 20'h00022;
@@ -192,7 +208,9 @@ module nexus32_accel_bus (
     assign csr_req_wdata = csr_wdata_q;
     assign csr_req_wstrb = csr_wstrb_q;
 
-    fir_seq_accel u_accel (
+    fir_seq_accel #(
+        .LANES(LANES)
+    ) u_accel (
         .clk_i(clk_i),
         .rst_i(rst_i),
         .req_valid_i(csr_req_valid),

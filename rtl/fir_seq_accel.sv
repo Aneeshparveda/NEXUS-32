@@ -24,7 +24,9 @@
 // discarded. Hardware RESET or CTRL.RESET clears safety and BRAM sticky faults.
 // All architectures share this prefetch and result-commit path. This remains a
 // single-buffer design, not the planned full SoC bus/DMA/STREAM-DB subsystem.
-module fir_seq_accel (
+module fir_seq_accel #(
+    parameter int LANES = 32
+) (
     input  logic                  clk_i,
     input  logic                  rst_i,
 
@@ -62,6 +64,20 @@ module fir_seq_accel (
     output logic                  done_sticky_o,
     output logic                  error_sticky_o
 );
+    generate
+        if (LANES != 4 && LANES != 8 && LANES != 16 && LANES != 32) begin : gen_illegal_lanes
+            LANES_MUST_BE_4_8_16_OR_32 invalid();
+        end
+    endgenerate
+
+    // synthesis translate_off
+    initial begin
+        if (LANES != 4 && LANES != 8 && LANES != 16 && LANES != 32) begin
+            $fatal(1, "ERROR: fir_seq_accel LANES=%0d is unsupported; must be 4, 8, 16, or 32", LANES);
+        end
+    end
+    // synthesis translate_on
+
     localparam logic [11:0] REG_CTRL          = 12'h000;
     localparam logic [11:0] REG_STATUS        = 12'h004;
     localparam logic [11:0] REG_TAP_COUNT     = 12'h008;
@@ -137,8 +153,8 @@ module fir_seq_accel (
     exec_state_t exec_state_q;
     logic [4:0] prefetch_index_q;
     logic [1:0] run_arch_q;
-    logic [1023:0] sample_vector_q;
-    logic [1023:0] coefficient_vector_q;
+    logic [LANES*32-1:0] sample_vector_q;
+    logic [LANES*32-1:0] coefficient_vector_q;
     logic [31:0] elapsed_cycles_work_q;
     logic first_input_seen_q;
     logic [31:0] compute_elapsed_work_q;
@@ -176,7 +192,7 @@ module fir_seq_accel (
         input_end_ext = {1'b0, input_ptr_q} + span_bytes_ext;
         coefficient_end_ext = {1'b0, coefficient_ptr_q} + span_bytes_ext;
         config_valid = (tap_count_reg_q >= 32'd1) &&
-                       (tap_count_reg_q <= 32'd32) &&
+                       (tap_count_reg_q <= 32'(LANES)) &&
                        (input_ptr_q[1:0] == 2'b00) &&
                        (coefficient_ptr_q[1:0] == 2'b00) &&
                        (output_ptr_q[1:0] == 2'b00) &&
@@ -272,7 +288,9 @@ module fir_seq_accel (
     assign selector_in_valid = (exec_state_q == EXEC_SELECTOR_SUBMIT) && busy_q;
     assign selector_out_ready = 1'b1; // result is committed immediately when valid
 
-    fir_arch_selector u_arch_selector (
+    fir_arch_selector #(
+        .LANES(LANES)
+    ) u_arch_selector (
         .clk_i(clk_i),
         .rst_i(engine_reset),
         .in_valid_i(selector_in_valid),
