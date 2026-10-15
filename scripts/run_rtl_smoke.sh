@@ -38,16 +38,35 @@ iverilog -g2012 -Wall -s tb_fir_seq_accel \
   rtl/fir_q16_mac.sv \
   rtl/fir_q16_postprocess.sv \
   rtl/fir_seq_engine.sv \
+  rtl/fir_parallel_engine.sv \
+  rtl/fir_pipelined_engine.sv \
+  rtl/fir_arch_selector.sv \
   rtl/fir_tap_bram.sv \
   rtl/fir_seq_accel.sv \
   tests/rtl/tb_fir_seq_accel.sv
 vvp results/rtl/tb_fir_seq_accel.vvp
+
+iverilog -g2012 -Wall -s tb_fir_accel_architectures \
+  -o results/rtl/tb_fir_accel_architectures.vvp \
+  rtl/fir_q16_mac.sv \
+  rtl/fir_q16_postprocess.sv \
+  rtl/fir_seq_engine.sv \
+  rtl/fir_parallel_engine.sv \
+  rtl/fir_pipelined_engine.sv \
+  rtl/fir_arch_selector.sv \
+  rtl/fir_tap_bram.sv \
+  rtl/fir_seq_accel.sv \
+  tests/rtl/tb_fir_accel_architectures.sv
+vvp results/rtl/tb_fir_accel_architectures.vvp
 
 iverilog -g2012 -Wall -s tb_nexus32_accel_bus \
   -o results/rtl/tb_nexus32_accel_bus.vvp \
   rtl/fir_q16_mac.sv \
   rtl/fir_q16_postprocess.sv \
   rtl/fir_seq_engine.sv \
+  rtl/fir_parallel_engine.sv \
+  rtl/fir_pipelined_engine.sv \
+  rtl/fir_arch_selector.sv \
   rtl/fir_tap_bram.sv \
   rtl/fir_seq_accel.sv \
   rtl/nexus32_accel_bus.sv \
@@ -61,12 +80,34 @@ if [[ -f vendor/picorv32/picorv32.v && -f firmware/nexus32_smoke.hex ]]; then
     rtl/fir_q16_mac.sv \
     rtl/fir_q16_postprocess.sv \
     rtl/fir_seq_engine.sv \
+    rtl/fir_parallel_engine.sv \
+    rtl/fir_pipelined_engine.sv \
+    rtl/fir_arch_selector.sv \
     rtl/fir_tap_bram.sv \
     rtl/fir_seq_accel.sv \
     rtl/nexus32_accel_bus.sv \
     rtl/nexus32_soc.sv \
     tests/rtl/tb_nexus32_soc.sv
   vvp results/rtl/tb_nexus32_soc.vvp
+
+  # Exercise all three architectural choices through PicoRV32, the memory
+  # bridge, the real accelerator CSR shell, BRAM prefetch, and result memory.
+  bash scripts/build_multiarch_firmware.sh
+  iverilog -g2012 -Wall -s tb_nexus32_soc_multiarch \
+    -o results/rtl/tb_nexus32_soc_multiarch.vvp \
+    vendor/picorv32/picorv32.v \
+    rtl/fir_q16_mac.sv \
+    rtl/fir_q16_postprocess.sv \
+    rtl/fir_seq_engine.sv \
+    rtl/fir_parallel_engine.sv \
+    rtl/fir_pipelined_engine.sv \
+    rtl/fir_arch_selector.sv \
+    rtl/fir_tap_bram.sv \
+    rtl/fir_seq_accel.sv \
+    rtl/nexus32_accel_bus.sv \
+    rtl/nexus32_soc.sv \
+    tests/rtl/tb_nexus32_soc_multiarch.sv
+  vvp results/rtl/tb_nexus32_soc_multiarch.vvp
 
   # Build a separate program that jumps to MMIO space and verify that an
   # instruction fetch never becomes an accelerator bus request.
@@ -77,6 +118,9 @@ if [[ -f vendor/picorv32/picorv32.v && -f firmware/nexus32_smoke.hex ]]; then
     rtl/fir_q16_mac.sv \
     rtl/fir_q16_postprocess.sv \
     rtl/fir_seq_engine.sv \
+    rtl/fir_parallel_engine.sv \
+    rtl/fir_pipelined_engine.sv \
+    rtl/fir_arch_selector.sv \
     rtl/fir_tap_bram.sv \
     rtl/fir_seq_accel.sv \
     rtl/nexus32_accel_bus.sv \
@@ -95,6 +139,9 @@ iverilog -g2012 -Wall -s tb_nexus32_accel_bus_stall \
   rtl/fir_q16_mac.sv \
   rtl/fir_q16_postprocess.sv \
   rtl/fir_seq_engine.sv \
+  rtl/fir_parallel_engine.sv \
+  rtl/fir_pipelined_engine.sv \
+  rtl/fir_arch_selector.sv \
   rtl/fir_tap_bram.sv \
   rtl/fir_seq_accel.sv \
   rtl/nexus32_accel_bus.sv \
@@ -109,6 +156,9 @@ if [[ -f vendor/picorv32/picorv32.v && -f firmware/nexus32_smoke.hex ]]; then
     rtl/fir_q16_mac.sv \
     rtl/fir_q16_postprocess.sv \
     rtl/fir_seq_engine.sv \
+    rtl/fir_parallel_engine.sv \
+    rtl/fir_pipelined_engine.sv \
+    rtl/fir_arch_selector.sv \
     rtl/fir_tap_bram.sv \
     rtl/fir_seq_accel.sv \
     rtl/nexus32_accel_bus.sv \

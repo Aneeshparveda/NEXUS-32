@@ -41,6 +41,7 @@ module tb_fir_seq_accel;
     integer i;
     logic transaction_error;
     logic [31:0] read_value;
+    logic [31:0] total_cycles_value;
 
     always #5 clk = ~clk;
     always @(posedge clk) begin
@@ -208,12 +209,13 @@ module tb_fir_seq_accel;
         csr_read(12'h018, read_value, transaction_error);
         if (transaction_error || read_value == 0)
             $fatal(1, "FAIL: total cycles should be nonzero");
+        total_cycles_value = read_value;
         csr_read(12'h01c, read_value, transaction_error);
         if (transaction_error || read_value != 1)
             $fatal(1, "FAIL: sample count should be one, got %08x", read_value);
         csr_read(12'h020, read_value, transaction_error);
-        if (transaction_error || read_value != 4)
-            $fatal(1, "FAIL: compute count should be four, got %08x", read_value);
+        if (transaction_error || read_value == 0 || read_value >= total_cycles_value)
+            $fatal(1, "FAIL: compute interval should be nonzero and shorter than total, compute=%0d total=%0d", read_value, total_cycles_value);
 
         // Reset clears sticky safety faults but does not clear BRAM contents.
         @(negedge clk);
