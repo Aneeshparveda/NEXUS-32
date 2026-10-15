@@ -23,8 +23,16 @@ obj_dir/
 coverage/
 results/generated/
 
-# Generated firmware and simulation products
+# NEXUS-32 generated compiler/simulation products
+/build/
+results/rtl/*.vvp
+results/rtl/*.vcd
+
+# Generated build and simulation artifacts
 /build/
 firmware/nexus32_smoke.hex
 results/rtl/*.vvp
 results/rtl/*.vcd
+
+# Downloaded pinned PicoRV32 checkout
+/vendor/picorv32/

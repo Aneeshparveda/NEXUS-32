@@ -53,3 +53,21 @@ iverilog -g2012 -Wall -s tb_nexus32_accel_bus \
   rtl/nexus32_accel_bus.sv \
   tests/rtl/tb_nexus32_accel_bus.sv
 vvp results/rtl/tb_nexus32_accel_bus.vvp
+
+if [[ -f vendor/picorv32/picorv32.v && -f firmware/nexus32_smoke.hex ]]; then
+  iverilog -g2012 -Wall -s tb_nexus32_soc \
+    -o results/rtl/tb_nexus32_soc.vvp \
+    vendor/picorv32/picorv32.v \
+    rtl/fir_q16_mac.sv \
+    rtl/fir_q16_postprocess.sv \
+    rtl/fir_seq_engine.sv \
+    rtl/fir_tap_bram.sv \
+    rtl/fir_seq_accel.sv \
+    rtl/nexus32_accel_bus.sv \
+    rtl/nexus32_soc.sv \
+    tests/rtl/tb_nexus32_soc.sv
+  vvp results/rtl/tb_nexus32_soc.vvp
+else
+  echo "SKIP: PicoRV32 SoC test requires vendor/picorv32/picorv32.v and firmware/nexus32_smoke.hex."
+  echo "      Run scripts/vendor_picorv32.sh and scripts/build_smoke_firmware.sh first."
+fi

@@ -112,3 +112,19 @@ All transfers must be 32-bit aligned. Memory writes require all four byte strobe
 Bus requests are accepted at a rising edge when `req_valid_i && req_ready_o`. While valid is asserted and ready is low, the master must keep request fields stable. Every accepted transfer generates a one-cycle `rsp_valid_o` pulse; there is no response-ready input, so the master must always observe each response pulse. This adapter is not a full SoC bus fabric: instruction/data SRAM, Sample B/ping-pong, DMA, CPU arbitration, debug MMIO, and PicoRV32 integration remain future work.
 
 The new testbench `tests/rtl/tb_nexus32_accel_bus.sv` exercises memory writes/readback, end-to-end four-tap filtering, result-memory commit/readback, address/protection errors, sticky fault reporting, and write rejection during bank ownership. This testbench is delivered for owner-side validation; do not mark this milestone passed until `bash scripts/run_rtl_smoke.sh` passes on the Mac. Vivado BRAM inference and timing remain unverified.
+
+## Milestone 7 — PicoRV32 SoC smoke integration
+
+This milestone adds a CPU wrapper, local 16 KiB IMEM/DMEM, the accelerator bus bridge, bare-metal RV32I firmware, and an end-to-end testbench. The firmware writes a four-tap Q16.16 vector into coefficient/sample RAM, starts the FIR accelerator through CSRs, reads the result RAM, and writes a PASS sentinel into DMEM.
+
+On a fresh or updated workspace, run:
+
+```bash
+bash scripts/vendor_picorv32.sh
+bash scripts/build_smoke_firmware.sh
+bash scripts/run_rtl_smoke.sh
+```
+
+The last command should end with `PASS: PicoRV32 boot, RV32I firmware, memory bridge, and FIR accelerator end-to-end`. That is the expected message and must be observed locally before marking the milestone passed.
+
+The vendor script pins and verifies upstream commit `ef203c2b0a3fb793280f5114941416c425c5b461`; see `docs/PICORV32_PIN.md` for the integration boundary and current limitations.
