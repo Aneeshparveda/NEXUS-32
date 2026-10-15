@@ -7,15 +7,17 @@
 // underlying pipelined engine retains 1/cycle throughput when used directly;
 // throughput through this first selector shell is limited to one outstanding
 // request and is not a performance result.
-module fir_arch_selector (
+module fir_arch_selector #(
+    parameter int LANES = 32
+) (
     input  logic                    clk_i,
     input  logic                    rst_i,
     input  logic                    in_valid_i,
     output logic                    in_ready_o,
     input  logic [1:0]              arch_select_i,
     input  logic [5:0]              tap_count_i,
-    input  logic [1023:0]           sample_vector_i,
-    input  logic [1023:0]           coefficient_vector_i,
+    input  logic [LANES*32-1:0]     sample_vector_i,
+    input  logic [LANES*32-1:0]     coefficient_vector_i,
     output logic                    out_valid_o,
     input  logic                    out_ready_i,
     output logic signed [31:0]      out_result_o,
@@ -23,6 +25,19 @@ module fir_arch_selector (
     output logic [15:0]             cycles_o,
     output logic [1:0]              active_arch_o
 );
+    // ---- Elaboration-time guard (fires in synthesis and simulation) ----
+    if (LANES != 4 && LANES != 8 && LANES != 16 && LANES != 32) begin : gen_lanes_error
+        LANES_MUST_BE_4_8_16_OR_32 invalid();
+    end
+
+    // ---- Simulation-time guard (descriptive message, ignored by synthesis) ----
+    // synthesis translate_off
+    initial begin
+        if (LANES != 4 && LANES != 8 && LANES != 16 && LANES != 32)
+            $fatal(1, "LANES must be 4, 8, 16, or 32; got %0d", LANES);
+    end
+    // synthesis translate_on
+
     localparam logic [1:0] ARCH_SEQ  = 2'd0;
     localparam logic [1:0] ARCH_PAR  = 2'd1;
     localparam logic [1:0] ARCH_PIPE = 2'd2;
@@ -30,8 +45,8 @@ module fir_arch_selector (
     logic active_q;
     logic [1:0] active_arch_q;
     logic local_response_q;
-    logic [1023:0] sample_vector_q;
-    logic [1023:0] coefficient_vector_q;
+    logic [LANES*32-1:0] sample_vector_q;
+    logic [LANES*32-1:0] coefficient_vector_q;
 
     logic seq_start;
     logic seq_tap_req;
@@ -59,7 +74,7 @@ module fir_arch_selector (
     logic invalid_request;
 
     assign invalid_request = (tap_count_i == 6'd0) ||
-                             (tap_count_i > 6'd32) ||
+                             (tap_count_i > 6'(LANES)) ||
                              (arch_select_i == 2'd3);
 
     // Do not accept another request until the prior response is consumed.
@@ -99,7 +114,7 @@ module fir_arch_selector (
         .result_o(seq_result), .cycles_o(seq_cycles)
     );
 
-    fir_parallel_engine u_parallel_engine (
+    fir_parallel_engine #(.LANES(LANES)) u_parallel_engine (
         .clk_i(clk_i), .rst_i(rst_i),
         .in_valid_i(par_in_valid), .in_ready_o(par_in_ready),
         .tap_count_i(tap_count_i), .sample_vector_i(sample_vector_i),
@@ -108,7 +123,7 @@ module fir_arch_selector (
         .out_result_o(par_result), .error_o(par_error), .cycles_o(par_cycles)
     );
 
-    fir_pipelined_engine u_pipelined_engine (
+    fir_pipelined_engine #(.LANES(LANES)) u_pipelined_engine (
         .clk_i(clk_i), .rst_i(rst_i),
         .in_valid_i(pipe_in_valid), .in_ready_o(pipe_in_ready),
         .tap_count_i(tap_count_i), .sample_vector_i(sample_vector_i),

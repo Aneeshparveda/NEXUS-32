@@ -1,5 +1,7 @@
 `timescale 1ns/1ps
-module tb_nexus32_soc_multiarch;
+module tb_nexus32_soc_multiarch #(
+    parameter int LANES = 32
+);
     logic clk = 1'b0;
     logic rst = 1'b1;
     wire trap;
@@ -11,7 +13,10 @@ module tb_nexus32_soc_multiarch;
 
     always #5 clk = ~clk;
 
-    nexus32_soc #(.IMEM_INIT_FILE("build/nexus32_multiarch.hex")) dut (
+    nexus32_soc #(
+        .IMEM_INIT_FILE("build/nexus32_multiarch.hex"),
+        .LANES(LANES)
+    ) dut (
         .clk_i(clk),
         .rst_i(rst),
         .trap_o(trap),

@@ -1,5 +1,7 @@
 `timescale 1ns/1ps
-module tb_nexus32_soc_reset_recovery;
+module tb_nexus32_soc_reset_recovery #(
+    parameter int LANES = 32
+);
     logic clk = 1'b0;
     logic rst = 1'b1;
     wire trap;
@@ -12,7 +14,10 @@ module tb_nexus32_soc_reset_recovery;
 
     always #5 clk = ~clk;
 
-    nexus32_soc #(.IMEM_INIT_FILE("firmware/nexus32_smoke.hex")) dut (
+    nexus32_soc #(
+        .IMEM_INIT_FILE("firmware/nexus32_smoke.hex"),
+        .LANES(LANES)
+    ) dut (
         .clk_i(clk), .rst_i(rst), .trap_o(trap),
         .cpu_bus_fault_o(cpu_bus_fault), .accelerator_busy_o(accel_busy),
         .accelerator_done_o(accel_done), .accelerator_error_o(accel_error)

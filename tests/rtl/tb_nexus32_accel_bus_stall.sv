@@ -1,5 +1,7 @@
 `timescale 1ns/1ps
-module tb_nexus32_accel_bus_stall;
+module tb_nexus32_accel_bus_stall #(
+    parameter int LANES = 32
+);
     logic clk = 1'b0;
     logic rst = 1'b1;
     logic req_valid = 1'b0;
@@ -26,7 +28,9 @@ module tb_nexus32_accel_bus_stall;
 
     always #5 clk = ~clk;
 
-    nexus32_accel_bus dut (
+    nexus32_accel_bus #(
+        .LANES(LANES)
+    ) dut (
         .clk_i(clk), .rst_i(rst),
         .req_valid_i(req_valid), .req_ready_o(req_ready),
         .req_write_i(req_write), .req_addr_i(req_addr),

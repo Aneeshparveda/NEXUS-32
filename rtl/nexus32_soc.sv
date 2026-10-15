@@ -6,7 +6,8 @@
 module nexus32_soc #(
     parameter IMEM_INIT_FILE = "firmware/nexus32_smoke.hex",
     parameter integer IMEM_WORDS = 4096,
-    parameter integer DMEM_WORDS = 4096
+    parameter integer DMEM_WORDS = 4096,
+    parameter int LANES = 32
 ) (
     input  logic clk_i,
     input  logic rst_i,
@@ -16,6 +17,20 @@ module nexus32_soc #(
     output logic accelerator_done_o,
     output logic accelerator_error_o
 );
+    generate
+        if (LANES != 4 && LANES != 8 && LANES != 16 && LANES != 32) begin : gen_illegal_lanes
+            LANES_MUST_BE_4_8_16_OR_32 invalid();
+        end
+    endgenerate
+
+    // synthesis translate_off
+    initial begin
+        if (LANES != 4 && LANES != 8 && LANES != 16 && LANES != 32) begin
+            $fatal(1, "ERROR: nexus32_soc LANES=%0d is unsupported; must be 4, 8, 16, or 32", LANES);
+        end
+    end
+    // synthesis translate_on
+
     localparam logic [17:0] IMEM_PAGE = 18'h00000; // 0x0000-0x3fff
     localparam logic [17:0] DMEM_PAGE = 18'h00004; // 0x10000-0x13fff
 
@@ -204,7 +219,9 @@ module nexus32_soc #(
         .trace_data()
     );
 
-    nexus32_accel_bus u_accel_bus (
+    nexus32_accel_bus #(
+        .LANES(LANES)
+    ) u_accel_bus (
         .clk_i(clk_i),
         .rst_i(rst_i),
         .req_valid_i(accel_req_valid),

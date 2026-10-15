@@ -1,5 +1,7 @@
 `timescale 1ns/1ps
-module tb_fir_seq_accel;
+module tb_fir_seq_accel #(
+    parameter int LANES = 32
+);
     logic clk = 1'b0;
     logic rst = 1'b1;
 
@@ -49,7 +51,9 @@ module tb_fir_seq_accel;
             commit_count <= commit_count + 1;
     end
 
-    fir_seq_accel dut (
+    fir_seq_accel #(
+        .LANES(LANES)
+    ) dut (
         .clk_i(clk),
         .rst_i(rst),
         .req_valid_i(req_valid),
@@ -222,13 +226,13 @@ module tb_fir_seq_accel;
         rst = 1'b1;
         repeat (3) @(negedge clk);
         rst = 1'b0;
-        csr_write(12'h008, 32'd32, transaction_error);
-        if (transaction_error) $fatal(1, "FAIL: 32-tap config write rejected");
+        csr_write(12'h008, 32'(LANES), transaction_error);
+        if (transaction_error) $fatal(1, "FAIL: %0d-tap config write rejected", LANES);
         csr_write(12'h00c, 32'h0002_0000, transaction_error);
         csr_write(12'h010, 32'h0002_1000, transaction_error);
         csr_write(12'h014, 32'h0002_2000, transaction_error);
         csr_write(12'h000, 32'd1, transaction_error);
-        if (transaction_error) $fatal(1, "FAIL: 32-tap START rejected");
+        if (transaction_error) $fatal(1, "FAIL: %0d-tap START rejected", LANES);
         wait (busy === 1'b1);
 
         // Try to alter a sample while accelerator owns the bank; write must be
@@ -247,7 +251,7 @@ module tb_fir_seq_accel;
         if (!error_sticky)
             $fatal(1, "FAIL: bank write rejection did not set sticky ERROR");
 
-        $display("PASS: NEXUS-32 accelerator CSR validation, execution, and ownership tests");
+        $display("PASS: NEXUS-32 accelerator CSR validation, execution, and ownership tests (LANES=%0d)", LANES);
         $finish;
     end
 

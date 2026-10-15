@@ -1,23 +1,26 @@
 `timescale 1ns/1ps
-module tb_fir_parallel_engine;
+module tb_fir_parallel_engine #(
+    parameter int LANES = 32
+);
     logic clk;
     logic rst;
     logic in_valid;
     logic in_ready;
     logic [5:0] tap_count;
-    logic [1023:0] sample_vector;
-    logic [1023:0] coefficient_vector;
+    logic [LANES*32-1:0] sample_vector;
+    logic [LANES*32-1:0] coefficient_vector;
     logic out_valid;
     logic out_ready;
     logic signed [31:0] out_result;
     logic error;
     logic [15:0] cycles;
-    logic [1023:0] s_work;
-    logic [1023:0] c_work;
+    logic [LANES*32-1:0] s_work;
+    logic [LANES*32-1:0] c_work;
     logic signed [31:0] expected_work;
     integer i;
+    integer t;
 
-    fir_parallel_engine dut (
+    fir_parallel_engine #(.LANES(LANES)) dut (
         .clk_i(clk), .rst_i(rst),
         .in_valid_i(in_valid), .in_ready_o(in_ready),
         .tap_count_i(tap_count),
@@ -31,8 +34,8 @@ module tb_fir_parallel_engine;
 
     function automatic logic signed [31:0] reference_result(
         input logic [5:0] n,
-        input logic [1023:0] samples,
-        input logic [1023:0] coefficients
+        input logic [LANES*32-1:0] samples,
+        input logic [LANES*32-1:0] coefficients
     );
         logic signed [31:0] s;
         logic signed [31:0] c;
@@ -42,7 +45,7 @@ module tb_fir_parallel_engine;
         integer k;
         begin
             acc = 72'sd0;
-            for (k = 0; k < 32; k = k + 1) begin
+            for (k = 0; k < LANES; k = k + 1) begin
                 if (k < n) begin
                     s = $signed(samples[k*32 +: 32]);
                     c = $signed(coefficients[k*32 +: 32]);
@@ -62,8 +65,8 @@ module tb_fir_parallel_engine;
 
     task automatic send_good(
         input logic [5:0] n,
-        input logic [1023:0] samples,
-        input logic [1023:0] coefficients
+        input logic [LANES*32-1:0] samples,
+        input logic [LANES*32-1:0] coefficients
     );
         logic signed [31:0] exp_result;
         begin
@@ -103,10 +106,10 @@ module tb_fir_parallel_engine;
     endtask
 
     task automatic test_backpressure;
-        logic [1023:0] first_s;
-        logic [1023:0] first_c;
-        logic [1023:0] second_s;
-        logic [1023:0] second_c;
+        logic [LANES*32-1:0] first_s;
+        logic [LANES*32-1:0] first_c;
+        logic [LANES*32-1:0] second_s;
+        logic [LANES*32-1:0] second_c;
         logic signed [31:0] first_expected;
         logic signed [31:0] second_expected;
         integer stall;
@@ -180,24 +183,37 @@ module tb_fir_parallel_engine;
         send_good(6'd1, s_work, c_work);
 
         // Mixed-sign three-tap example: 0.25 - 0.25 - 0.5 = -0.5.
-        s_work = '0;
-        c_work = '0;
-        s_work[0*32 +: 32] = 32'sd65536;
-        s_work[1*32 +: 32] = -32'sd32768;
-        s_work[2*32 +: 32] = 32'sd131072;
-        c_work[0*32 +: 32] = 32'sd16384;
-        c_work[1*32 +: 32] = 32'sd32768;
-        c_work[2*32 +: 32] = -32'sd16384;
-        send_good(6'd3, s_work, c_work);
+        if (LANES >= 3) begin
+            s_work = '0;
+            c_work = '0;
+            s_work[0*32 +: 32] = 32'sd65536;
+            s_work[1*32 +: 32] = -32'sd32768;
+            s_work[2*32 +: 32] = 32'sd131072;
+            c_work[0*32 +: 32] = 32'sd16384;
+            c_work[1*32 +: 32] = 32'sd32768;
+            c_work[2*32 +: 32] = -32'sd16384;
+            send_good(6'd3, s_work, c_work);
+        end
 
-        // Deterministic 32-tap window exercises all multiplier lanes and tree levels.
+        // Deterministic LANES-tap window exercises all multiplier lanes and tree levels.
         s_work = '0;
         c_work = '0;
-        for (i = 0; i < 32; i = i + 1) begin
+        for (i = 0; i < LANES; i = i + 1) begin
             s_work[i*32 +: 32] = (i - 16) * 65536;
             c_work[i*32 +: 32] = ((i % 5) - 2) * 16384;
         end
-        send_good(6'd32, s_work, c_work);
+        send_good(6'(LANES), s_work, c_work);
+
+        // Tap-count sweep: test every legal tap count 1..LANES with distinct values
+        for (t = 1; t <= LANES; t = t + 1) begin
+            s_work = '0;
+            c_work = '0;
+            for (i = 0; i < t; i = i + 1) begin
+                s_work[i*32 +: 32] = ((i * 17 + 1) % 65536) * 1024;
+                c_work[i*32 +: 32] = (((i * 31 + 7) % 65536) - 32768) * 16;
+            end
+            send_good(6'(t), s_work, c_work);
+        end
 
         // Full-width operands force positive and negative output saturation.
         s_work = '0;
@@ -212,20 +228,31 @@ module tb_fir_parallel_engine;
         c_work[31:0] = 32'h7fffffff;
         send_good(6'd1, s_work, c_work);
 
-        // Thirty-two INT32_MIN * INT32_MIN terms remain within signed 72 bits.
+        // LANES * (INT32_MIN * INT32_MIN) terms remain within signed 72 bits.
         s_work = '0;
         c_work = '0;
-        for (i = 0; i < 32; i = i + 1) begin
+        for (i = 0; i < LANES; i = i + 1) begin
             s_work[i*32 +: 32] = 32'h80000000;
             c_work[i*32 +: 32] = 32'h80000000;
         end
-        send_good(6'd32, s_work, c_work);
+        send_good(6'(LANES), s_work, c_work);
 
         send_bad(6'd0);
-        send_bad(6'd33);
+        send_bad(6'(LANES + 1));
+        if (LANES < 32) begin
+            send_bad(6'd32);
+            send_bad(6'd33);
+        end else begin
+            send_bad(6'd33);
+        end
+        send_bad(6'd63);
+
         test_backpressure();
 
-        $display("PASS: NEXUS-32 parallel FIR, balanced tree, saturation, and backpressure tests");
+        if (LANES == 32)
+            $display("PASS: NEXUS-32 parallel FIR, balanced tree, saturation, and backpressure tests");
+        else
+            $display("PASS: NEXUS-32 parallel FIR (LANES=%0d), balanced tree, saturation, and backpressure tests", LANES);
         $finish;
     end
 

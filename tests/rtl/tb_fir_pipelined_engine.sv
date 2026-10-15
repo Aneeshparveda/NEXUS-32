@@ -1,12 +1,18 @@
 `timescale 1ns/1ps
-module tb_fir_pipelined_engine;
+module tb_fir_pipelined_engine #(
+    parameter int LANES = 32
+);
+    localparam int DEPTH   = $clog2(LANES);
+    localparam int STAGES  = DEPTH + 2;
+    localparam int LATENCY = DEPTH + 1;
+
     logic clk;
     logic rst;
     logic in_valid;
     logic in_ready;
     logic [5:0] tap_count;
-    logic [1023:0] sample_vector;
-    logic [1023:0] coefficient_vector;
+    logic [LANES*32-1:0] sample_vector;
+    logic [LANES*32-1:0] coefficient_vector;
     logic out_valid;
     logic out_ready;
     logic signed [31:0] out_result;
@@ -30,7 +36,7 @@ module tb_fir_pipelined_engine;
     logic held_error;
     logic [15:0] held_cycles;
 
-    fir_pipelined_engine dut (
+    fir_pipelined_engine #(.LANES(LANES)) dut (
         .clk_i(clk), .rst_i(rst),
         .in_valid_i(in_valid), .in_ready_o(in_ready),
         .tap_count_i(tap_count),
@@ -45,8 +51,8 @@ module tb_fir_pipelined_engine;
 
     function automatic logic signed [31:0] reference_result(
         input logic [5:0] n,
-        input logic [1023:0] samples,
-        input logic [1023:0] coefficients
+        input logic [LANES*32-1:0] samples,
+        input logic [LANES*32-1:0] coefficients
     );
         logic signed [31:0] s;
         logic signed [31:0] c;
@@ -56,7 +62,7 @@ module tb_fir_pipelined_engine;
         integer tap;
         begin
             acc = 72'sd0;
-            for (tap = 0; tap < 32; tap = tap + 1) begin
+            for (tap = 0; tap < LANES; tap = tap + 1) begin
                 if (tap < n) begin
                     s = $signed(samples[tap*32 +: 32]);
                     c = $signed(coefficients[tap*32 +: 32]);
@@ -93,8 +99,8 @@ module tb_fir_pipelined_engine;
                 if (out_result !== expected_result[q_rd])
                     $fatal(1, "result mismatch idx=%0d got=%0d expected=%0d",
                            q_rd, out_result, expected_result[q_rd]);
-                if (cycles !== 16'd6)
-                    $fatal(1, "nominal pipeline depth mismatch: cycles=%0d", cycles);
+                if (cycles !== 16'(LATENCY))
+                    $fatal(1, "nominal pipeline depth mismatch: got cycles=%0d, expected=%0d", cycles, LATENCY);
 
                 if (measure_throughput) begin
                     if ((measured_outputs > 0) &&
@@ -109,7 +115,7 @@ module tb_fir_pipelined_engine;
             if (in_valid && in_ready) begin
                 if (q_wr >= 256)
                     $fatal(1, "scoreboard queue overflow");
-                expected_error[q_wr] = (tap_count == 6'd0) || (tap_count > 6'd32);
+                expected_error[q_wr] = (tap_count == 6'd0) || (tap_count > 6'(LANES));
                 if (expected_error[q_wr])
                     expected_result[q_wr] = 32'sd0;
                 else
@@ -127,9 +133,9 @@ module tb_fir_pipelined_engine;
         begin
             sample_vector = '0;
             coefficient_vector = '0;
-            n = 1 + (idx % 32);
+            n = 1 + (idx % LANES);
             tap_count = n;
-            for (lane = 0; lane < 32; lane = lane + 1) begin
+            for (lane = 0; lane < LANES; lane = lane + 1) begin
                 if (lane < n) begin
                     sample_vector[lane*32 +: 32] =
                         (idx*17 + lane*31 - 300) * 1024;
@@ -142,8 +148,8 @@ module tb_fir_pipelined_engine;
 
     task automatic submit_one(
         input logic [5:0] n,
-        input logic [1023:0] samples,
-        input logic [1023:0] coefficients
+        input logic [LANES*32-1:0] samples,
+        input logic [LANES*32-1:0] coefficients
     );
         logic accepted;
         begin
@@ -235,16 +241,30 @@ module tb_fir_pipelined_engine;
         wait_for_drain(q_wr);
 
         // Mixed-sign three-tap result: +0.25 - 0.25 - 0.5 = -0.5.
-        sample_vector = '0;
-        coefficient_vector = '0;
-        sample_vector[0*32 +: 32] = 32'sd65536;
-        sample_vector[1*32 +: 32] = -32'sd32768;
-        sample_vector[2*32 +: 32] = 32'sd131072;
-        coefficient_vector[0*32 +: 32] = 32'sd16384;
-        coefficient_vector[1*32 +: 32] = 32'sd32768;
-        coefficient_vector[2*32 +: 32] = -32'sd16384;
-        submit_one(6'd3, sample_vector, coefficient_vector);
-        wait_for_drain(q_wr);
+        if (LANES >= 3) begin
+            sample_vector = '0;
+            coefficient_vector = '0;
+            sample_vector[0*32 +: 32] = 32'sd65536;
+            sample_vector[1*32 +: 32] = -32'sd32768;
+            sample_vector[2*32 +: 32] = 32'sd131072;
+            coefficient_vector[0*32 +: 32] = 32'sd16384;
+            coefficient_vector[1*32 +: 32] = 32'sd32768;
+            coefficient_vector[2*32 +: 32] = -32'sd16384;
+            submit_one(6'd3, sample_vector, coefficient_vector);
+            wait_for_drain(q_wr);
+        end
+
+        // Legal tap count sweep across all tap counts 1..LANES.
+        for (k = 1; k <= LANES; k = k + 1) begin
+            sample_vector = '0;
+            coefficient_vector = '0;
+            for (i = 0; i < k; i = i + 1) begin
+                sample_vector[i*32 +: 32] = ((i * 17 + 1) % 65536) * 1024;
+                coefficient_vector[i*32 +: 32] = (((i * 31 + 7) % 65536) - 32768) * 16;
+            end
+            submit_one(6'(k), sample_vector, coefficient_vector);
+            wait_for_drain(q_wr);
+        end
 
         // Exercise positive saturation.
         sample_vector = '0;
@@ -262,21 +282,32 @@ module tb_fir_pipelined_engine;
         submit_one(6'd1, sample_vector, coefficient_vector);
         wait_for_drain(q_wr);
 
-        // 32 maximum-magnitude positive products exercise every tree lane.
+        // LANES maximum-magnitude positive products exercise every tree lane.
         sample_vector = '0;
         coefficient_vector = '0;
-        for (i = 0; i < 32; i = i + 1) begin
+        for (i = 0; i < LANES; i = i + 1) begin
             sample_vector[i*32 +: 32] = 32'h80000000;
             coefficient_vector[i*32 +: 32] = 32'h80000000;
         end
-        submit_one(6'd32, sample_vector, coefficient_vector);
+        submit_one(6'(LANES), sample_vector, coefficient_vector);
         wait_for_drain(q_wr);
 
         // Invalid tap counts return ordered error responses, not outputs that
         // look like valid calculations.
         submit_one(6'd0, '0, '0);
         wait_for_drain(q_wr);
-        submit_one(6'd33, '0, '0);
+        submit_one(6'(LANES + 1), '0, '0);
+        wait_for_drain(q_wr);
+        if (LANES < 32) begin
+            submit_one(6'd32, '0, '0);
+            wait_for_drain(q_wr);
+            submit_one(6'd33, '0, '0);
+            wait_for_drain(q_wr);
+        end else begin
+            submit_one(6'd33, '0, '0);
+            wait_for_drain(q_wr);
+        end
+        submit_one(6'd63, '0, '0);
         wait_for_drain(q_wr);
 
         // Continuous valid stream: prove one output transfer per cycle after fill.
@@ -292,9 +323,9 @@ module tb_fir_pipelined_engine;
         if (throughput_gaps != 0)
             $fatal(1, "throughput had %0d gaps after output stream started", throughput_gaps);
 
-        // Fill all seven pipeline stages while the output is blocked.
+        // Fill all STAGES pipeline stages while the output is blocked.
         out_ready = 1'b0;
-        submit_stream(7);
+        submit_stream(STAGES);
         if (!out_valid)
             $fatal(1, "expected valid output while backpressured");
         if (in_ready)
@@ -336,7 +367,7 @@ module tb_fir_pipelined_engine;
         @(negedge clk);
         rst = 1'b0;
         out_ready = 1'b1;
-        repeat (8) begin
+        repeat (STAGES + 1) begin
             @(posedge clk); #1;
             if (out_valid)
                 $fatal(1, "stale output reappeared after pipeline reset");
@@ -350,7 +381,10 @@ module tb_fir_pipelined_engine;
         submit_one(6'd1, sample_vector, coefficient_vector);
         wait_for_drain(q_wr);
 
-        $display("PASS: NEXUS-32 pipelined FIR arithmetic, 1/cycle throughput, backpressure, errors, and reset tests");
+        if (LANES == 32)
+            $display("PASS: NEXUS-32 pipelined FIR arithmetic, 1/cycle throughput, backpressure, errors, and reset tests");
+        else
+            $display("PASS: NEXUS-32 pipelined FIR (LANES=%0d) arithmetic, 1/cycle throughput, backpressure, errors, and reset tests", LANES);
         $finish;
     end
 
