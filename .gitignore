@@ -27,12 +27,8 @@ results/generated/
 /build/
 results/rtl/*.vvp
 results/rtl/*.vcd
-
-# Generated build and simulation artifacts
-/build/
 firmware/nexus32_smoke.hex
-results/rtl/*.vvp
-results/rtl/*.vcd
+firmware/nexus32_invalid_fetch.hex
 
 # Downloaded pinned PicoRV32 checkout
 /vendor/picorv32/

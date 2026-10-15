@@ -65,7 +65,8 @@ module nexus32_soc #(
     assign cpu_mem_is_local = cpu_mem_is_imem || cpu_mem_is_dmem;
 
     assign accel_req_valid = (bridge_state_q == ST_IDLE) &&
-                             cpu_mem_valid && !cpu_mem_is_local;
+                             cpu_mem_valid && !cpu_mem_is_local &&
+                             !cpu_mem_instr;
     assign accel_req_write = |cpu_mem_wstrb;
     assign accel_req_addr = cpu_mem_addr;
     assign accel_req_wdata = cpu_mem_wdata;
@@ -92,7 +93,13 @@ module nexus32_soc #(
             case (bridge_state_q)
                 ST_IDLE: begin
                     if (cpu_mem_valid) begin
-                        if (cpu_mem_is_imem) begin
+                        // Instruction fetches may only access instruction
+                        // memory. Reject fetches aimed at DMEM or MMIO.
+                        if (cpu_mem_instr && !cpu_mem_is_imem) begin
+                            local_fault_sticky_q <= 1'b1;
+                            local_rdata_q <= 32'd0;
+                            bridge_state_q <= ST_LOCAL_RESPONSE;
+                        end else if (cpu_mem_is_imem) begin
                             if ((cpu_mem_addr[1:0] != 2'b00) || (|cpu_mem_wstrb)) begin
                                 local_fault_sticky_q <= 1'b1;
                                 local_rdata_q <= 32'd0;

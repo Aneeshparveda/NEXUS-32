@@ -67,7 +67,54 @@ if [[ -f vendor/picorv32/picorv32.v && -f firmware/nexus32_smoke.hex ]]; then
     rtl/nexus32_soc.sv \
     tests/rtl/tb_nexus32_soc.sv
   vvp results/rtl/tb_nexus32_soc.vvp
+
+  # Build a separate program that jumps to MMIO space and verify that an
+  # instruction fetch never becomes an accelerator bus request.
+  bash scripts/build_invalid_fetch_firmware.sh
+  iverilog -g2012 -Wall -s tb_nexus32_invalid_fetch \
+    -o results/rtl/tb_nexus32_invalid_fetch.vvp \
+    vendor/picorv32/picorv32.v \
+    rtl/fir_q16_mac.sv \
+    rtl/fir_q16_postprocess.sv \
+    rtl/fir_seq_engine.sv \
+    rtl/fir_tap_bram.sv \
+    rtl/fir_seq_accel.sv \
+    rtl/nexus32_accel_bus.sv \
+    rtl/nexus32_soc.sv \
+    tests/rtl/tb_nexus32_invalid_fetch.sv
+  vvp results/rtl/tb_nexus32_invalid_fetch.vvp
 else
   echo "SKIP: PicoRV32 SoC test requires vendor/picorv32/picorv32.v and firmware/nexus32_smoke.hex."
   echo "      Run scripts/vendor_picorv32.sh and scripts/build_smoke_firmware.sh first."
+fi
+
+# Backpressure/stability check: queue a second request while the first RAM read
+# is outstanding; verify fields remain stable until ready and responses stay ordered.
+iverilog -g2012 -Wall -s tb_nexus32_accel_bus_stall \
+  -o results/rtl/tb_nexus32_accel_bus_stall.vvp \
+  rtl/fir_q16_mac.sv \
+  rtl/fir_q16_postprocess.sv \
+  rtl/fir_seq_engine.sv \
+  rtl/fir_tap_bram.sv \
+  rtl/fir_seq_accel.sv \
+  rtl/nexus32_accel_bus.sv \
+  tests/rtl/tb_nexus32_accel_bus_stall.sv
+vvp results/rtl/tb_nexus32_accel_bus_stall.vvp
+
+# Mid-operation reset recovery test uses the normal smoke firmware image.
+if [[ -f vendor/picorv32/picorv32.v && -f firmware/nexus32_smoke.hex ]]; then
+  iverilog -g2012 -Wall -s tb_nexus32_soc_reset_recovery \
+    -o results/rtl/tb_nexus32_soc_reset_recovery.vvp \
+    vendor/picorv32/picorv32.v \
+    rtl/fir_q16_mac.sv \
+    rtl/fir_q16_postprocess.sv \
+    rtl/fir_seq_engine.sv \
+    rtl/fir_tap_bram.sv \
+    rtl/fir_seq_accel.sv \
+    rtl/nexus32_accel_bus.sv \
+    rtl/nexus32_soc.sv \
+    tests/rtl/tb_nexus32_soc_reset_recovery.sv
+  vvp results/rtl/tb_nexus32_soc_reset_recovery.vvp
+else
+  echo "SKIP: reset recovery test requires PicoRV32 source and normal smoke firmware image."
 fi

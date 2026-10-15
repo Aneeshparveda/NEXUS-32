@@ -116,6 +116,8 @@ module fir_seq_accel (
     logic clear_error_request_now;
     logic fatal_event_now;
 
+    logic [31:0] sample_offset_bytes;
+    logic [31:0] coefficient_offset_bytes;
     logic [9:0] sample_base_word;
     logic [9:0] coefficient_base_word;
     logic bram_cfg_valid;
@@ -168,8 +170,13 @@ module fir_seq_accel (
                        (output_ptr_q < OUTPUT_LIMIT) && bram_cfg_valid;
     end
 
-    assign sample_base_word = (input_ptr_q - INPUT_BASE) >> 2;
-    assign coefficient_base_word = (coefficient_ptr_q - COEFF_BASE) >> 2;
+    assign sample_offset_bytes = input_ptr_q - INPUT_BASE;
+    assign coefficient_offset_bytes = coefficient_ptr_q - COEFF_BASE;
+
+    // The validated memory-bank offsets fit in 12 bits.
+    // Bits [11:2] select the 10-bit word index explicitly.
+    assign sample_base_word = sample_offset_bytes[11:2];
+    assign coefficient_base_word = coefficient_offset_bytes[11:2];
 
     // Reserve both memory banks on the accepted START edge. This ensures a
     // concurrent host write is denied even though busy_q has not updated yet.
