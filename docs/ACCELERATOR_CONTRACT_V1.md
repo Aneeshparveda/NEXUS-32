@@ -33,9 +33,12 @@ as verbatim V2.2 register text: `RESULT_COUNT` at `0x3C`; reserved/deferred
 assignments; zero response data for forbidden writes; preservation of the
 protected-read sentinel through the CPU bridge; non-fatal host ownership and
 configuration errors; the W1C/recovery distinction for invalid configuration
-versus internal faults; and the pending-sample/error counter rules.  V2.2
-provides the underlying architecture direction, while this approved V1.0
-document is authoritative for those clarified details.
+versus internal faults; the idle-only debug-event W1C policy; the deterministic
+same-edge debug metadata priority; the normal completion response for a
+well-formed but preflight-invalid START; the reset-cleared `cpu_bus_fault_o`
+diagnostic; and the pending-sample/error counter rules.  V2.2 provides the
+underlying architecture direction, while this approved V1.0 document is
+authoritative for those clarified details.
 
 The words **shall**, **must**, and **required** are normative.  **May** denotes a
 permitted implementation choice that does not change observable contract
@@ -102,16 +105,18 @@ rounding or saturation point.
 
 ### 2.2 Window and history meaning
 
-For accepted sample index `n`, the engine window is ordered as:
+For accepted sample index `n`, the logical history contains exactly `TAP_COUNT-1`
+entries.  For `TAP_COUNT=1`, the history is empty and the engine window contains
+only the current sample.  For `TAP_COUNT>=2`, the engine window is ordered as:
 
 ```text
 window[n] = [x[n], history_before[n][0], history_before[n][1], ...]
 ```
 
-At block start, history is zero.  Unavailable pre-block samples are therefore
-treated as zero.  The detailed capture, transfer, and history-update ordering is
-normative in §7; in particular, history is not advanced at sample capture,
-output transfer, or result commit.
+At block start, all logical history entries are zero.  Unavailable pre-block
+samples are therefore treated as zero.  The detailed capture, transfer, and
+history-update ordering is normative in §7; in particular, history is not
+advanced at sample capture, output transfer, or result commit.
 
 ### 2.3 Ready/valid transfer contract
 
@@ -152,12 +157,25 @@ address-map entry.
 ### 3.1 Alignment and transfer rules
 
 All accelerator memory and CSR transfers are 32-bit word transfers and require
-`addr[1:0] == 2'b00`.  Memory writes require all four byte strobes.  A
-misaligned transfer, partial write, unsupported page, or reserved CSR access is
-completed according to the host-bus error protocol, sets the appropriate sticky
-debug event, and performs no mapped side effect.  For a decoded result-region
-write, `RESULT_WRITE_FORBIDDEN` takes priority over generic `BUS_ACCESS`, while
-the request still returns an error and zero response data.
+`addr[1:0] == 2'b00`.  Address-page decoding occurs before transfer-format
+validation:
+
+1. An address outside every mapped page is `BUS_UNMAPPED`, returns
+   `0xDEAD_BEEF`, asserts `rsp_error=1`, and performs no mapped side effect.
+   This classification wins over misalignment or byte-strobe properties on an
+   otherwise unmapped address.
+2. A mapped but malformed transfer—misaligned address, partial write, or
+   reserved/unsupported CSR offset—is `BUS_ACCESS`, returns zero data, asserts
+   `rsp_error=1`, and performs no mapped side effect.
+3. A decoded result-region write is always `RESULT_WRITE_FORBIDDEN`, including
+   while idle; this specific event takes priority over generic `BUS_ACCESS` and
+   `MEM_OWNERSHIP` and returns zero data with `rsp_error=1`.
+4. A well-formed mapped access to an owned coefficient, sample, or result region
+   is `MEM_OWNERSHIP` and uses the protection responses in §5.2.
+
+The event priority above is also the classification priority when a request
+could otherwise match more than one category.  All classified errors perform no
+mapped side effect.
 
 The valid/ready bus accepts a request on a rising edge when `req_valid &&
 req_ready`.  While `req_valid=1` and `req_ready=0`, the master shall hold address,
@@ -205,7 +223,7 @@ physically clear result BRAM.
 | `0x24` | `AUTO_CFG` | `0x0000_0000` | Reserved | Unimplemented in V1.0: reads return zero; writes complete with `rsp_error=1` and `BUS_ACCESS`. |
 | `0x28` | `AUTO_SELECTED` | `0x0000_0000` | Reserved | Unimplemented in V1.0: reads return zero; writes complete with `rsp_error=1` and `BUS_ACCESS`. |
 | `0x2C` | `AUTO_MODEL_ID` | `0x0000_0000` | Reserved | Unimplemented in V1.0: reads return zero; writes complete with `rsp_error=1` and `BUS_ACCESS`. |
-| `0x30` | `DBG_STATUS` | `0x0000_0000` | R/W1C | Sticky debug events in §5. A write of one clears the selected event bit; reset clears all. |
+| `0x30` | `DBG_STATUS` | `0x0000_0000` | R/W1C | Sticky debug events in §5. Bits 0–5 are W1C only while idle; `BRAM_FAULT` and `ENGINE_ERROR` require RESET. |
 | `0x34` | `DBG_ADDR` | `0x0000_0000` | R | Address associated with the most recently latched bus/debug event. |
 | `0x38` | `DBG_INFO` | `0x0000_0000` | R | Encoded master, direction, and event information for the most recently latched event. |
 | `0x3C` | `RESULT_COUNT` | `0x0000_0000` | R | Number of successful result-memory commits in the current run. |
@@ -292,15 +310,25 @@ is busy.  It shall never be reclassified as an ownership event.  A forbidden
 host access is a completed host transaction; it is not a dropped request.
 
 The unmapped-page diagnostic response is `0xDEAD_BEEF` with `rsp_error=1` and
-sticky `BUS_UNMAPPED`.  Misaligned, partial, unsupported, or otherwise malformed
-transactions return zero data unless a more specific sentinel is defined above,
-set `BUS_ACCESS`, and perform no mapped side effect.
+sticky `BUS_UNMAPPED`.  A mapped but misaligned, partial, reserved, or otherwise
+malformed transaction returns zero data with `rsp_error=1` and sticky
+`BUS_ACCESS`, unless the more-specific result-write rule above applies.  An
+unmapped address is never reclassified as `BUS_ACCESS` merely because its
+alignment or byte strobes are also invalid.
 
 The bus-level sticky fault output and the SoC `cpu_bus_fault_o` are external
 diagnostics for errored host transactions.  They do not imply `STATUS.ERROR`, do
 not abort a valid run, and are not a claim that PicoRV32 takes a native bus-error
 trap.  The CPU bridge shall preserve `accel_rsp_rdata`, including
 `0xBAD0_0001`, while asserting the normal CPU response/ready handshake.
+
+`bus_fault_sticky_o` and `cpu_bus_fault_o` are cleared only by the external
+hardware reset `rst_i`.  They are not cleared by `CTRL.RESET`, `STATUS` W1C,
+`DBG_STATUS` W1C, or a later successful transaction; no new CSR is introduced
+for these external diagnostics.  A host transaction with `rsp_error=1` sets the
+corresponding sticky diagnostic.  A well-formed preflight-invalid START uses the
+normal completion response defined in §6.1 and therefore does not set
+`cpu_bus_fault_o` merely because it sets `STATUS.ERROR`.
 
 ### 5.3 Debug events
 
@@ -317,10 +345,41 @@ trap.  The CPU bridge shall preserve `accel_rsp_rdata`, including
 | 6 | `BRAM_FAULT` | Internal BRAM range/collision fault. |
 | 7 | `ENGINE_ERROR` | Internal engine failure or error termination. |
 
-Events are sticky until reset or a W1C write to `DBG_STATUS`.  A newly observed
-event wins over a same-edge clear for that bit.  `DBG_ADDR` and `DBG_INFO` hold
-the most recent event metadata.  Clearing a debug event does not clear
-`STATUS.ERROR`, release ownership, alter counters, or change an active run.
+Events are sticky until their permitted clearing action.  `BUS_UNMAPPED`,
+`BUS_ACCESS`, `MEM_OWNERSHIP`, `RESULT_WRITE_FORBIDDEN`, `CONFIG_WHILE_BUSY`,
+and `INVALID_CONFIG` (bits 0–5) may be cleared by a W1C write to `DBG_STATUS`
+only while `BUSY=0`.  A `DBG_STATUS` W1C write while busy is rejected as
+`BUS_ACCESS`, clears no bit, does not alter the active run, and does not clear
+`STATUS.ERROR`; it returns zero response data with `rsp_error=1`.  `BRAM_FAULT`
+and `ENGINE_ERROR` (bits 6–7) are RESET-only;
+writing one to those bits has no clearing effect.  Clearing
+`DBG_STATUS.INVALID_CONFIG` does not clear `STATUS.ERROR`; the recoverable
+status bit requires its separate idle W1C operation.  No debug W1C operation can
+clear `STATUS.ERROR` for a RESET-only BRAM or engine fault.
+
+When more than one distinct event is observed on the same rising edge, every
+applicable event bit is set in `DBG_STATUS`.  `DBG_ADDR` and `DBG_INFO` describe
+the highest-priority event using this fixed order (highest first):
+
+```text
+ENGINE_ERROR
+BRAM_FAULT
+INVALID_CONFIG
+RESULT_WRITE_FORBIDDEN
+MEM_OWNERSHIP
+CONFIG_WHILE_BUSY
+BUS_UNMAPPED
+BUS_ACCESS
+```
+
+For multiple instances of one event class on the same edge, the lowest
+offending address wins; if addresses are equal, writes win over reads; if the
+direction is also equal, the lowest encoded master ID wins.  The V1.0 CPU/Port-A
+master has ID `0`; future master IDs are assigned in increasing numeric order.
+A newly observed event wins over a same-edge W1C clear for its bit.  These
+metadata-selection rules do not suppress any other sticky event bit.  Clearing
+a debug event does not clear `STATUS.ERROR`, release ownership, alter counters,
+or change an active run.
 
 ## 6. Error and recovery contract
 
@@ -330,6 +389,16 @@ An invalid START is rejected before accelerator Port-B memory access and before
 ownership is acquired.  Examples include an invalid tap count or block length,
 an illegal architecture selection, misaligned pointer, out-of-range span, or
 pointer arithmetic overflow.
+
+V2.2 defines the resulting controller state for invalid configuration but does
+not define a separate `rsp_error` value for a well-formed command that fails
+semantic preflight.  V1.0 therefore makes the following bus distinction
+explicit: an aligned, complete-word START write is accepted and completes with
+`rsp_error=0` and zero write-response data, while the controller reports the
+command rejection through `STATUS.ERROR=1` and `DBG_STATUS.INVALID_CONFIG=1`.
+This is not a malformed bus transaction, does not set `BUS_ACCESS`, and does
+not set `cpu_bus_fault_o`.  Misaligned, partial, reserved, or otherwise
+malformed START/CSR writes remain `BUS_ACCESS` with `rsp_error=1` under §3.1.
 
 The required result is:
 
@@ -349,7 +418,8 @@ no physical result-memory change
 `INVALID_CONFIG` is recoverable.  After the configuration is corrected, the
 projected implementation may clear `STATUS.ERROR` with the idle W1C operation;
 the previous invalid result remains invalid.  A new START is not accepted while
-the error remains set.
+the error remains set.  Clearing the `INVALID_CONFIG` debug bit and clearing the
+recoverable `STATUS.ERROR` bit are separate idle operations.
 
 ### 6.2 Internal BRAM and engine faults
 
@@ -415,11 +485,15 @@ This capture does not advance history, transfer an engine input, or increment
 ### 7.2 Form a stable pending window
 
 The window for sample `n` is formed from the pending sample and the history state
-before sample `n` is accepted:
+before sample `n` is accepted.  The all-tap-count definition is:
 
 ```text
-window[n] = [pending_sample_q,
-             history_q[0], history_q[1], ..., history_q[T-2]]
+if T == 1:
+    window[n] = [pending_sample_q]
+    history    = []
+else:
+    window[n] = [pending_sample_q,
+                 history_q[0], history_q[1], ..., history_q[T-2]]
 ```
 
 The complete window and the pending sample are stable for as long as the engine
@@ -438,8 +512,11 @@ advances history for the next accepted input:
 
 ```text
 engine accepts [pending_sample_q, old history]
-history_next[0] = pending_sample_q
-history_next[k] = history_q[k-1]       for k >= 1
+if T == 1:
+    history_next = []
+else:
+    history_next[0] = pending_sample_q
+    history_next[k] = history_q[k-1]   for 1 <= k <= T-2
 history_q       <= history_next
 pending_valid_q <= 0
 ```
@@ -659,7 +736,7 @@ Statuses describe the repository at that commit, not the desired V1.0 behavior.
 | Block processing and history | **OPEN** | `rtl/fir_seq_accel.sv:6,283-413` gathers one tap window and dispatches one operation. No block iterator, pending-sample register, accepted-input history, or multi-result validity sequence is implemented. |
 | Timing-counter definitions | **OPEN** | Current counters increment busy cycles and begin compute timing at a BRAM tap response (`rtl/fir_seq_accel.sv:357-363,395-402`), while standalone engines expose nominal or source-dependent fields. V1.0 requires transfer-edge event definitions and the run-level partial-span rule. |
 | START while BUSY | **OPEN** | The integrated shell rejects writes while busy and sets `rsp_error` (`rtl/fir_seq_accel.sv:423-435`), unlike the adopted V2.2/V1.0 START-while-BUSY no-op. |
-| Preflight versus internal fault separation | **OPEN** | The current `fatal_event_now` path combines ownership, busy-write, invalid-start, BRAM, and engine events (`rtl/fir_seq_accel.sv:249-252`). V1.0 requires separate host, recoverable preflight, and RESET-only internal-fault behavior. |
+| Preflight versus internal fault separation | **OPEN** | The current `fatal_event_now` path combines ownership, busy-write, invalid-start, BRAM, and engine events (`rtl/fir_seq_accel.sv:249-252`); the current invalid-start path also returns `rsp_error=1` (`rtl/fir_seq_accel.sv:423-445`). V1.0 requires separate host, recoverable preflight, and RESET-only internal-fault behavior, with a normal bus completion for a well-formed invalid START. |
 | Reserved `AUTO_*`, version, and build registers | **OPEN** | The current CSR implementation ends at `0x20` (`rtl/fir_seq_accel.sv:81-89,484-495`). V1.0 reserves the documented later offsets with zero reads and explicit access errors on writes. |
 | Pipeline latency | **UNVERIFIED** | Current RTL declares `LATENCY=DEPTH+1` (`rtl/fir_pipelined_engine.sv:36-39`), but the testbench checks the reported field rather than the input-edge to output-transfer edge (`tests/rtl/tb_fir_pipelined_engine.sv:93-103`). The required lane sweep and waveform experiment in §9 has not been used to settle the V1.0 metadata. |
 | Vivado characterization | **UNVERIFIED** | The repository provides an OOC flow, but no run receipt is part of this commit. The flow explicitly excludes CPU, bus, BRAM gather, and arbitration (`vivado/README.md:50-54`). |
@@ -707,10 +784,19 @@ approved.  The following checklist is the gate for subsequent implementation.
       set `MEM_OWNERSHIP`, and do not affect the active run.
 - [ ] Result writes are forbidden in every state, return zero data, set only
       `RESULT_WRITE_FORBIDDEN`, and never become `MEM_OWNERSHIP`.
-- [ ] Unmapped transactions use `0xDEAD_BEEF`; malformed/reserved accesses use
-      `BUS_ACCESS`; all have no mapped side effect.
-- [ ] Debug events, last-address/info registers, W1C clearing, reset clearing,
-      and same-edge event precedence are tested.
+- [ ] Unmapped transactions use `BUS_UNMAPPED` and `0xDEAD_BEEF`; mapped
+      malformed/reserved accesses use `BUS_ACCESS`; decoded result writes take
+      the `RESULT_WRITE_FORBIDDEN` priority; all have no mapped side effect.
+- [ ] `DBG_STATUS` bits 0–5 clear only through idle W1C, bits 6–7 require RESET,
+      and no debug W1C clears `STATUS.ERROR` for a RESET-only fault.
+- [ ] Debug events, last-address/info registers, fixed same-edge priority and
+      same-class tie rule, preservation of all simultaneous sticky bits, and
+      W1C-while-BUSY rejection are tested.
+- [ ] A well-formed preflight-invalid START completes with `rsp_error=0` and
+      zero write-response data while setting `STATUS.ERROR`/`INVALID_CONFIG`;
+      malformed START writes remain `BUS_ACCESS`.
+- [ ] `cpu_bus_fault_o` is set only by errored host transactions and clears only
+      on external hardware reset, not through accelerator/debug CSRs.
 - [ ] The CPU bridge preserves errored read data and keeps the external sticky
       bus-fault diagnostic distinct from `STATUS.ERROR`.
 
@@ -743,6 +829,8 @@ approved.  The following checklist is the gate for subsequent implementation.
 ### 12.6 Block/history behavior
 
 - [ ] A synchronous sample response is captured into a pending-sample register.
+- [ ] For `TAP_COUNT=1`, the window is exactly `[current_sample]` and contains
+      zero history entries.
 - [ ] The pending sample and pre-transfer history form a stable window.
 - [ ] History advances atomically on `engine_in_valid && engine_in_ready`.
 - [ ] Stalled input holds the pending sample, complete window, and history.
