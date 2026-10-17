@@ -193,6 +193,7 @@ module fir_seq_accel #(
      logic [31:0] debug_addr_q;
      logic [31:0] debug_info_q;
      logic internal_fault_q;
+     logic bram_fault_seen_q;
 
     logic [32:0] span_bytes_ext;
     logic [32:0] input_end_ext;
@@ -215,6 +216,7 @@ module fir_seq_accel #(
      logic host_mem_ownership_event_now;
      logic [31:0] host_mem_event_addr_now;
      logic [31:0] host_mem_event_info_now;
+     logic bram_fault_event_now;
      logic [7:0] debug_event_set_now;
      logic [31:0] debug_event_addr_now;
      logic [31:0] debug_event_info_now;
@@ -350,6 +352,10 @@ module fir_seq_accel #(
                                        (!config_valid || (req_wdata_i[3:2] == 2'b11));
     assign internal_fault_event_now = bram_range_fault ||
                                       (selector_out_valid && selector_out_error);
+    // bram_range_fault is a persistent BRAM-side status output. It contributes
+    // to internal-fault handling while high, but contributes to debug metadata
+    // only on the first edge on which the fault is observed.
+    assign bram_fault_event_now = bram_range_fault && !bram_fault_seen_q;
     assign invalid_config_event_now = invalid_start_request_now;
 
     always_comb begin
@@ -480,7 +486,7 @@ module fir_seq_accel #(
                 3'd5, DBG_DIR_WRITE, DBG_MASTER_CPU);
         end
 
-        if (bram_range_fault) begin
+        if (bram_fault_event_now) begin
             debug_event_valid[DBG_BRAM_FAULT] = 1'b1;
             debug_event_addr_candidate[DBG_BRAM_FAULT] = input_ptr_q;
             debug_event_info_candidate[DBG_BRAM_FAULT] = make_debug_info(
@@ -611,6 +617,7 @@ module fir_seq_accel #(
              debug_addr_q <= 32'd0;
              debug_info_q <= 32'd0;
              internal_fault_q <= 1'b0;
+             bram_fault_seen_q <= 1'b0;
          end else begin
             rsp_valid_q <= 1'b0;
             rsp_error_q <= 1'b0;
@@ -619,6 +626,9 @@ module fir_seq_accel #(
 
              if (mem_write_rejected_now)
                  mem_write_rejected_q <= 1'b1;
+
+              if (bram_range_fault)
+                  bram_fault_seen_q <= 1'b1;
 
               if (internal_fault_event_now) begin
                   internal_fault_q <= 1'b1;
@@ -749,6 +759,8 @@ module fir_seq_accel #(
                                     sample_vector_q <= '0;
                                     coefficient_vector_q <= '0;
                                     done_sticky_q <= 1'b0;
+                                    cycles_total_q <= 32'd0;
+                                    compute_cycles_q <= 32'd0;
                                     elapsed_cycles_work_q <= 32'd0;
                                     first_input_seen_q <= 1'b0;
                                     compute_elapsed_work_q <= 32'd0;

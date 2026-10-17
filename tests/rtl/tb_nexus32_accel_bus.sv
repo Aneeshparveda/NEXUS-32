@@ -284,10 +284,18 @@ module tb_nexus32_accel_bus #(
                 $fatal(1, "busy debug W1C classification mismatch: %08x", rd);
             bus_xfer(1'b1, SAMPLE_BASE + 0, 32'hdead_beef, 4'hf, rd, err);
             if (!err) $fatal(1, "sample write during ownership was not rejected");
+            bus_xfer(1'b1, COEFF_BASE + 0, 32'hdead_beef, 4'hf, rd, err);
+            if (!err) $fatal(1, "coefficient write during ownership was not rejected");
         end
         wait_for_done(100, done_seen);
         if (!done_seen) $fatal(1, "max-tap accelerator did not complete");
         repeat (3) @(negedge clk);
+        bus_xfer(1'b0, SAMPLE_BASE + 0, 32'd0, 4'hf, rd, err);
+        if (err || rd !== 32'h0002_0000)
+            $fatal(1, "protected sample write changed BRAM contents: %08x", rd);
+        bus_xfer(1'b0, COEFF_BASE + 0, 32'd0, 4'hf, rd, err);
+        if (err || rd !== 32'h0001_0000)
+            $fatal(1, "protected coefficient write changed BRAM contents: %08x", rd);
         if (commit_count != 2)
             $fatal(1, "ownership violation should not suppress result commit; count=%0d", commit_count);
         if (accelerator_error)
