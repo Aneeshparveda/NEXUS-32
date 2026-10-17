@@ -20,8 +20,9 @@
 //
 // The host RAM write ports use local WORD offsets (0..1023), not system
 // addresses. Writes are denied for the entire run, including the START edge.
-// A denied write sets a sticky ownership fault and the current result is
-// discarded. Hardware RESET or CTRL.RESET clears safety and BRAM sticky faults.
+// A denied write sets a sticky ownership debug event without corrupting BRAM
+// or invalidating the active result. Hardware RESET or CTRL.RESET clears safety
+// and BRAM sticky faults.
 // All architectures share this prefetch and result-commit path. This remains a
 // single-buffer design, not the planned full SoC bus/DMA/STREAM-DB subsystem.
 module fir_seq_accel #(
@@ -51,11 +52,15 @@ module fir_seq_accel #(
     input  logic [9:0]             host_coefficient_raddr_i,
     output logic                  host_coefficient_rvalid_o,
     output logic signed [31:0]     host_coefficient_rdata_o,
-    input  logic                  host_coefficient_we_i,
-    input  logic [9:0]             host_coefficient_waddr_i,
-    input  logic signed [31:0]     host_coefficient_wdata_i,
+     input  logic                  host_coefficient_we_i,
+     input  logic [9:0]             host_coefficient_waddr_i,
+     input  logic signed [31:0]     host_coefficient_wdata_i,
 
-    output logic                  bank_owned_o,
+     input  logic [7:0]             host_event_set_i,
+     input  logic [31:0]            host_event_addr_i,
+     input  logic [31:0]            host_event_info_i,
+
+     output logic                  bank_owned_o,
     output logic                  mem_write_rejected_o,
     output logic                  result_commit_o,
     output logic [31:0]            result_commit_addr_o,
@@ -85,8 +90,78 @@ module fir_seq_accel #(
     localparam logic [11:0] REG_INPUT_PTR     = 12'h010;
     localparam logic [11:0] REG_OUTPUT_PTR    = 12'h014;
     localparam logic [11:0] REG_CYCLES_TOTAL  = 12'h018;
-    localparam logic [11:0] REG_SAMPLE_COUNT  = 12'h01c;
-    localparam logic [11:0] REG_COMPUTE_CYCLES= 12'h020;
+     localparam logic [11:0] REG_SAMPLE_COUNT  = 12'h01c;
+     localparam logic [11:0] REG_COMPUTE_CYCLES= 12'h020;
+     localparam logic [11:0] REG_AUTO_CFG      = 12'h024;
+     localparam logic [11:0] REG_AUTO_SELECTED = 12'h028;
+     localparam logic [11:0] REG_AUTO_MODEL_ID = 12'h02c;
+     localparam logic [11:0] REG_DBG_STATUS    = 12'h030;
+     localparam logic [11:0] REG_DBG_ADDR      = 12'h034;
+     localparam logic [11:0] REG_DBG_INFO      = 12'h038;
+     localparam logic [11:0] REG_RESULT_COUNT  = 12'h03c;
+     localparam logic [11:0] REG_CONTRACT_VERSION = 12'h040;
+     localparam logic [11:0] REG_BUILD_ID      = 12'h044;
+
+     localparam int DBG_BUS_UNMAPPED = 0;
+     localparam int DBG_BUS_ACCESS = 1;
+     localparam int DBG_MEM_OWNERSHIP = 2;
+     localparam int DBG_RESULT_WRITE_FORBIDDEN = 3;
+     localparam int DBG_CONFIG_WHILE_BUSY = 4;
+     localparam int DBG_INVALID_CONFIG = 5;
+     localparam int DBG_BRAM_FAULT = 6;
+     localparam int DBG_ENGINE_ERROR = 7;
+     localparam logic [7:0] DBG_CLEARABLE_MASK = 8'h3f;
+     localparam logic [1:0] DBG_DIR_READ = 2'd0;
+     localparam logic [1:0] DBG_DIR_WRITE = 2'd1;
+     localparam logic [1:0] DBG_DIR_INTERNAL = 2'd2;
+     localparam logic [1:0] DBG_MASTER_CPU = 2'd0;
+     localparam logic [1:0] DBG_MASTER_INTERNAL = 2'd1;
+
+      function automatic logic [31:0] make_debug_info(
+          input logic [2:0] event_code,
+          input logic [1:0] direction,
+          input logic [1:0] master
+     );
+         begin
+             make_debug_info = 32'd0;
+             make_debug_info[2:0] = event_code;
+             make_debug_info[4:3] = direction;
+             make_debug_info[6:5] = master;
+          end
+      endfunction
+
+      // Select one metadata candidate for a single event class. Address is
+      // the primary key; at an equal address writes beat reads, then the
+      // lowest encoded master ID wins. Other directions (for example the
+      // internal-fault direction) participate only in the master tie-break.
+      function automatic logic debug_candidate_wins(
+          input logic        candidate_valid,
+          input logic [31:0] candidate_addr,
+          input logic [31:0] candidate_info,
+          input logic        current_valid,
+          input logic [31:0] current_addr,
+          input logic [31:0] current_info
+      );
+          begin
+              debug_candidate_wins = 1'b0;
+              if (!current_valid)
+                  debug_candidate_wins = candidate_valid;
+              else if (!candidate_valid)
+                  debug_candidate_wins = 1'b0;
+              else if (candidate_addr < current_addr)
+                  debug_candidate_wins = 1'b1;
+              else if (candidate_addr > current_addr)
+                  debug_candidate_wins = 1'b0;
+              else if ((candidate_info[4:3] == DBG_DIR_WRITE) &&
+                       (current_info[4:3] != DBG_DIR_WRITE))
+                  debug_candidate_wins = 1'b1;
+              else if ((candidate_info[4:3] != DBG_DIR_WRITE) &&
+                       (current_info[4:3] == DBG_DIR_WRITE))
+                  debug_candidate_wins = 1'b0;
+              else
+                  debug_candidate_wins = candidate_info[6:5] < current_info[6:5];
+          end
+      endfunction
 
     localparam logic [31:0] COEFF_BASE  = 32'h0002_0000;
     localparam logic [31:0] COEFF_LIMIT = 32'h0002_1000;
@@ -104,17 +179,20 @@ module fir_seq_accel #(
     logic [31:0] input_ptr_q;
     logic [31:0] output_ptr_q;
 
-    logic busy_q;
-    logic done_sticky_q;
-    logic error_sticky_q;
-    logic ownership_fault_q;
-    logic mem_write_rejected_q;
+     logic busy_q;
+     logic done_sticky_q;
+     logic error_sticky_q;
+     logic mem_write_rejected_q;
     logic result_commit_q;
     logic [31:0] result_commit_addr_q;
     logic signed [31:0] result_commit_data_q;
-    logic [31:0] cycles_total_q;
-    logic [31:0] sample_count_q;
-    logic [31:0] compute_cycles_q;
+     logic [31:0] cycles_total_q;
+      logic [31:0] sample_count_q;
+     logic [31:0] compute_cycles_q;
+     logic [7:0] debug_status_q;
+     logic [31:0] debug_addr_q;
+     logic [31:0] debug_info_q;
+     logic internal_fault_q;
 
     logic [32:0] span_bytes_ext;
     logic [32:0] input_end_ext;
@@ -124,11 +202,27 @@ module fir_seq_accel #(
     logic reserve_banks_now;
     logic mem_write_attempt_now;
     logic mem_write_rejected_now;
-    logic busy_write_request_now;
-    logic invalid_start_request_now;
-    logic clear_done_request_now;
-    logic clear_error_request_now;
-    logic fatal_event_now;
+     logic invalid_start_request_now;
+     logic clear_done_request_now;
+     logic clear_error_request_now;
+     logic clear_debug_request_now;
+     logic [7:0] debug_clear_mask_now;
+     logic csr_bus_access_event_now;
+     logic busy_config_write_now;
+     logic busy_start_noop_now;
+     logic internal_fault_event_now;
+     logic invalid_config_event_now;
+     logic host_mem_ownership_event_now;
+     logic [31:0] host_mem_event_addr_now;
+     logic [31:0] host_mem_event_info_now;
+     logic [7:0] debug_event_set_now;
+     logic [31:0] debug_event_addr_now;
+     logic [31:0] debug_event_info_now;
+     logic debug_event_valid [0:7];
+     logic [31:0] debug_event_addr_candidate [0:7];
+     logic [31:0] debug_event_info_candidate [0:7];
+     integer debug_index;
+     logic req_accept_now;
 
     logic [31:0] sample_offset_bytes;
     logic [31:0] coefficient_offset_bytes;
@@ -211,45 +305,224 @@ module fir_seq_accel #(
     assign sample_base_word = sample_offset_bytes[11:2];
     assign coefficient_base_word = coefficient_offset_bytes[11:2];
 
+    assign req_accept_now = req_valid_i && req_ready_o;
+
     // Reserve both memory banks on the accepted START edge. This ensures a
     // concurrent host write is denied even though busy_q has not updated yet.
     // A complete CTRL write with RESET asserted performs a synchronous
     // accelerator-local reset. RESET takes priority when START is also set.
-    assign soft_reset_request_now = req_valid_i && req_ready_o && req_write_i &&
+    assign soft_reset_request_now = req_accept_now && req_write_i &&
                                     (req_addr_i == REG_CTRL) &&
                                     (req_wstrb_i == 4'hf) && req_wdata_i[1] &&
                                     (req_wdata_i[31:4] == 28'd0);
     assign engine_reset = rst_i || soft_reset_request_now;
 
-    assign start_request_now = req_valid_i && req_ready_o && req_write_i &&
+    assign start_request_now = req_accept_now && req_write_i &&
                                (req_addr_i == REG_CTRL) &&
                                (req_wstrb_i == 4'hf) && req_wdata_i[0] &&
                                !req_wdata_i[1] && (req_wdata_i[31:4] == 28'd0);
-    assign reserve_banks_now = start_request_now && !busy_q && config_valid &&
-                               !ownership_fault_q && !bram_range_fault &&
+    assign reserve_banks_now = start_request_now && !busy_q && !error_sticky_q && config_valid &&
+                               !bram_range_fault &&
                                (req_wdata_i[3:2] != 2'b11);
     assign mem_write_attempt_now = host_sample_we_i || host_coefficient_we_i;
     assign mem_write_rejected_now = mem_write_attempt_now &&
                                     (busy_q || reserve_banks_now);
     assign sample_we_to_bram = host_sample_we_i && !busy_q && !reserve_banks_now;
     assign coefficient_we_to_bram = host_coefficient_we_i && !busy_q && !reserve_banks_now;
-    assign busy_write_request_now = req_valid_i && req_ready_o && req_write_i &&
-                                    busy_q;
-    assign invalid_start_request_now = start_request_now && !busy_q &&
-                                       (!config_valid || ownership_fault_q || bram_range_fault ||
-                                        (req_wdata_i[3:2] == 2'b11));
-    assign clear_done_request_now = req_valid_i && req_ready_o && req_write_i &&
+    assign busy_start_noop_now = req_accept_now && req_write_i && busy_q &&
+                                 (req_addr_i == REG_CTRL) && (req_wstrb_i == 4'hf) &&
+                                 req_wdata_i[0] && !req_wdata_i[1] &&
+                                 (req_wdata_i[31:4] == 28'd0);
+    assign clear_done_request_now = req_accept_now && req_write_i &&
                                     (req_addr_i == REG_STATUS) &&
                                     (req_wstrb_i == 4'hf) && req_wdata_i[1] &&
                                     ((req_wdata_i & 32'hffff_fff9) == 32'd0) && !busy_q;
-    assign clear_error_request_now = req_valid_i && req_ready_o && req_write_i &&
+    assign clear_error_request_now = req_accept_now && req_write_i &&
                                      (req_addr_i == REG_STATUS) &&
                                      (req_wstrb_i == 4'hf) && req_wdata_i[2] &&
                                      ((req_wdata_i & 32'hffff_fff9) == 32'd0) && !busy_q;
-    assign fatal_event_now = mem_write_rejected_now || busy_write_request_now ||
-                             invalid_start_request_now ||
-                             (selector_out_valid && selector_out_error) ||
-                             bram_range_fault || ownership_fault_q;
+    assign clear_debug_request_now = req_accept_now && req_write_i &&
+                                     (req_addr_i == REG_DBG_STATUS) &&
+                                     (req_wstrb_i == 4'hf) && !busy_q &&
+                                     (req_wdata_i[31:8] == 24'd0);
+    assign debug_clear_mask_now = req_wdata_i[7:0] & DBG_CLEARABLE_MASK;
+    assign invalid_start_request_now = start_request_now && !busy_q && !error_sticky_q &&
+                                       (!config_valid || (req_wdata_i[3:2] == 2'b11));
+    assign internal_fault_event_now = bram_range_fault ||
+                                      (selector_out_valid && selector_out_error);
+    assign invalid_config_event_now = invalid_start_request_now;
+
+    always_comb begin
+        csr_bus_access_event_now = 1'b0;
+        if (req_accept_now) begin
+            if (req_addr_i[1:0] != 2'b00) begin
+                csr_bus_access_event_now = 1'b1;
+            end else if (req_write_i) begin
+                if (req_wstrb_i != 4'hf) begin
+                    csr_bus_access_event_now = 1'b1;
+                end else if ((req_addr_i == REG_CTRL) && (req_wdata_i[31:4] != 28'd0)) begin
+                    csr_bus_access_event_now = 1'b1;
+                end else if ((req_addr_i == REG_STATUS) && ((req_wdata_i & 32'hffff_fff9) != 32'd0)) begin
+                    csr_bus_access_event_now = 1'b1;
+                end else if ((req_addr_i == REG_DBG_STATUS) && (req_wdata_i[31:8] != 24'd0)) begin
+                    csr_bus_access_event_now = 1'b1;
+                end else if ((req_addr_i == REG_DBG_STATUS || req_addr_i == REG_STATUS) && busy_q) begin
+                    csr_bus_access_event_now = 1'b1;
+                end else begin
+                    case (req_addr_i)
+                        REG_CTRL, REG_STATUS, REG_TAP_COUNT, REG_COEFF_PTR,
+                        REG_INPUT_PTR, REG_OUTPUT_PTR, REG_DBG_STATUS: begin end
+                        default: csr_bus_access_event_now = 1'b1;
+                    endcase
+                end
+            end else begin
+                case (req_addr_i)
+                    REG_CTRL, REG_STATUS, REG_TAP_COUNT, REG_COEFF_PTR,
+                    REG_INPUT_PTR, REG_OUTPUT_PTR, REG_CYCLES_TOTAL,
+                    REG_SAMPLE_COUNT, REG_COMPUTE_CYCLES, REG_AUTO_CFG,
+                    REG_AUTO_SELECTED, REG_AUTO_MODEL_ID, REG_DBG_STATUS,
+                    REG_DBG_ADDR, REG_DBG_INFO, REG_RESULT_COUNT,
+                    REG_CONTRACT_VERSION, REG_BUILD_ID: begin end
+                    default: csr_bus_access_event_now = 1'b1;
+                endcase
+            end
+        end
+    end
+
+    assign busy_config_write_now = req_accept_now && req_write_i && busy_q &&
+                                   (req_wstrb_i == 4'hf) && !csr_bus_access_event_now &&
+                                   !busy_start_noop_now && !soft_reset_request_now &&
+                                   ((req_addr_i == REG_CTRL) || (req_addr_i == REG_TAP_COUNT) ||
+                                    (req_addr_i == REG_COEFF_PTR) || (req_addr_i == REG_INPUT_PTR) ||
+                                    (req_addr_i == REG_OUTPUT_PTR));
+
+    always_comb begin
+        host_mem_ownership_event_now = 1'b0;
+        host_mem_event_addr_now = 32'd0;
+        host_mem_event_info_now = 32'd0;
+        if ((host_sample_re_i || host_sample_we_i || host_coefficient_re_i || host_coefficient_we_i) &&
+            (busy_q || reserve_banks_now)) begin
+            host_mem_ownership_event_now = 1'b1;
+            host_mem_event_info_now = make_debug_info(
+                DBG_MEM_OWNERSHIP[2:0],
+                (host_sample_we_i || host_coefficient_we_i) ? DBG_DIR_WRITE : DBG_DIR_READ,
+                DBG_MASTER_CPU);
+            if (host_sample_re_i || host_sample_we_i)
+                host_mem_event_addr_now = INPUT_BASE +
+                                          ({22'd0, (host_sample_we_i ? host_sample_waddr_i : host_sample_raddr_i)} << 2);
+            if (host_coefficient_re_i || host_coefficient_we_i) begin
+                if (!(host_sample_re_i || host_sample_we_i) ||
+                    (COEFF_BASE + ({22'd0, (host_coefficient_we_i ? host_coefficient_waddr_i : host_coefficient_raddr_i)} << 2) <
+                     host_mem_event_addr_now)) begin
+                    host_mem_event_addr_now = COEFF_BASE +
+                                              ({22'd0, (host_coefficient_we_i ? host_coefficient_waddr_i : host_coefficient_raddr_i)} << 2);
+                end
+            end
+        end
+    end
+
+    always_comb begin
+        debug_event_set_now = 8'd0;
+        debug_event_addr_now = 32'd0;
+        debug_event_info_now = 32'd0;
+        for (debug_index = 0; debug_index < 8; debug_index = debug_index + 1) begin
+            debug_event_valid[debug_index] = 1'b0;
+            debug_event_addr_candidate[debug_index] = 32'd0;
+            debug_event_info_candidate[debug_index] = 32'd0;
+        end
+
+        for (debug_index = 0; debug_index < 8; debug_index = debug_index + 1) begin
+            if (host_event_set_i[debug_index]) begin
+                debug_event_valid[debug_index] = 1'b1;
+                debug_event_addr_candidate[debug_index] = host_event_addr_i;
+                debug_event_info_candidate[debug_index] = host_event_info_i;
+            end
+        end
+
+        if (host_mem_ownership_event_now) begin
+            debug_event_valid[DBG_MEM_OWNERSHIP] = 1'b1;
+            if (debug_candidate_wins(
+                    1'b1, host_mem_event_addr_now, host_mem_event_info_now,
+                    host_event_set_i[DBG_MEM_OWNERSHIP],
+                    debug_event_addr_candidate[DBG_MEM_OWNERSHIP],
+                    debug_event_info_candidate[DBG_MEM_OWNERSHIP])) begin
+                debug_event_addr_candidate[DBG_MEM_OWNERSHIP] = host_mem_event_addr_now;
+                debug_event_info_candidate[DBG_MEM_OWNERSHIP] = host_mem_event_info_now;
+            end
+        end
+
+        if (csr_bus_access_event_now) begin
+            debug_event_valid[DBG_BUS_ACCESS] = 1'b1;
+            if (debug_candidate_wins(
+                    1'b1, 32'h1000_5000 + {20'd0, req_addr_i},
+                    make_debug_info(3'd1, req_write_i ? DBG_DIR_WRITE : DBG_DIR_READ,
+                                    DBG_MASTER_CPU),
+                    host_event_set_i[DBG_BUS_ACCESS],
+                    debug_event_addr_candidate[DBG_BUS_ACCESS],
+                    debug_event_info_candidate[DBG_BUS_ACCESS])) begin
+                debug_event_addr_candidate[DBG_BUS_ACCESS] = 32'h1000_5000 + {20'd0, req_addr_i};
+                debug_event_info_candidate[DBG_BUS_ACCESS] = make_debug_info(
+                    3'd1, req_write_i ? DBG_DIR_WRITE : DBG_DIR_READ, DBG_MASTER_CPU);
+            end
+        end
+
+        if (busy_config_write_now) begin
+            debug_event_valid[DBG_CONFIG_WHILE_BUSY] = 1'b1;
+            debug_event_addr_candidate[DBG_CONFIG_WHILE_BUSY] = 32'h1000_5000 + {20'd0, req_addr_i};
+            debug_event_info_candidate[DBG_CONFIG_WHILE_BUSY] = make_debug_info(
+                3'd4, DBG_DIR_WRITE, DBG_MASTER_CPU);
+        end
+
+        if (invalid_config_event_now) begin
+            debug_event_valid[DBG_INVALID_CONFIG] = 1'b1;
+            debug_event_addr_candidate[DBG_INVALID_CONFIG] = 32'h1000_5000 + {20'd0, req_addr_i};
+            debug_event_info_candidate[DBG_INVALID_CONFIG] = make_debug_info(
+                3'd5, DBG_DIR_WRITE, DBG_MASTER_CPU);
+        end
+
+        if (bram_range_fault) begin
+            debug_event_valid[DBG_BRAM_FAULT] = 1'b1;
+            debug_event_addr_candidate[DBG_BRAM_FAULT] = input_ptr_q;
+            debug_event_info_candidate[DBG_BRAM_FAULT] = make_debug_info(
+                3'd6, DBG_DIR_INTERNAL, DBG_MASTER_INTERNAL);
+        end
+
+        if (selector_out_valid && selector_out_error) begin
+            debug_event_valid[DBG_ENGINE_ERROR] = 1'b1;
+            debug_event_addr_candidate[DBG_ENGINE_ERROR] = output_ptr_q;
+            debug_event_info_candidate[DBG_ENGINE_ERROR] = make_debug_info(
+                3'd7, DBG_DIR_INTERNAL, DBG_MASTER_INTERNAL);
+        end
+
+        for (debug_index = 0; debug_index < 8; debug_index = debug_index + 1)
+            debug_event_set_now[debug_index] = debug_event_valid[debug_index];
+
+        if (debug_event_valid[DBG_ENGINE_ERROR]) begin
+            debug_event_addr_now = debug_event_addr_candidate[DBG_ENGINE_ERROR];
+            debug_event_info_now = debug_event_info_candidate[DBG_ENGINE_ERROR];
+        end else if (debug_event_valid[DBG_BRAM_FAULT]) begin
+            debug_event_addr_now = debug_event_addr_candidate[DBG_BRAM_FAULT];
+            debug_event_info_now = debug_event_info_candidate[DBG_BRAM_FAULT];
+        end else if (debug_event_valid[DBG_INVALID_CONFIG]) begin
+            debug_event_addr_now = debug_event_addr_candidate[DBG_INVALID_CONFIG];
+            debug_event_info_now = debug_event_info_candidate[DBG_INVALID_CONFIG];
+        end else if (debug_event_valid[DBG_RESULT_WRITE_FORBIDDEN]) begin
+            debug_event_addr_now = debug_event_addr_candidate[DBG_RESULT_WRITE_FORBIDDEN];
+            debug_event_info_now = debug_event_info_candidate[DBG_RESULT_WRITE_FORBIDDEN];
+        end else if (debug_event_valid[DBG_MEM_OWNERSHIP]) begin
+            debug_event_addr_now = debug_event_addr_candidate[DBG_MEM_OWNERSHIP];
+            debug_event_info_now = debug_event_info_candidate[DBG_MEM_OWNERSHIP];
+        end else if (debug_event_valid[DBG_CONFIG_WHILE_BUSY]) begin
+            debug_event_addr_now = debug_event_addr_candidate[DBG_CONFIG_WHILE_BUSY];
+            debug_event_info_now = debug_event_info_candidate[DBG_CONFIG_WHILE_BUSY];
+        end else if (debug_event_valid[DBG_BUS_UNMAPPED]) begin
+            debug_event_addr_now = debug_event_addr_candidate[DBG_BUS_UNMAPPED];
+            debug_event_info_now = debug_event_info_candidate[DBG_BUS_UNMAPPED];
+        end else if (debug_event_valid[DBG_BUS_ACCESS]) begin
+            debug_event_addr_now = debug_event_addr_candidate[DBG_BUS_ACCESS];
+            debug_event_info_now = debug_event_info_candidate[DBG_BUS_ACCESS];
+        end
+    end
 
     fir_tap_bram u_tap_bram (
         .clk_i(clk_i),
@@ -321,11 +594,10 @@ module fir_seq_accel #(
             error_sticky_q <= 1'b0;
             exec_state_q <= EXEC_IDLE;
             prefetch_index_q <= 5'd0;
-            run_arch_q <= 2'd0;
-            sample_vector_q <= '0;
-            coefficient_vector_q <= '0;
-            ownership_fault_q <= 1'b0;
-            mem_write_rejected_q <= 1'b0;
+             run_arch_q <= 2'd0;
+             sample_vector_q <= '0;
+             coefficient_vector_q <= '0;
+             mem_write_rejected_q <= 1'b0;
             result_commit_q <= 1'b0;
             result_commit_addr_q <= OUTPUT_BASE;
             result_commit_data_q <= 32'sd0;
@@ -333,23 +605,38 @@ module fir_seq_accel #(
             elapsed_cycles_work_q <= 32'd0;
             first_input_seen_q <= 1'b0;
             compute_elapsed_work_q <= 32'd0;
-            sample_count_q <= 32'd0;
-            compute_cycles_q <= 32'd0;
-        end else begin
+             sample_count_q <= 32'd0;
+             compute_cycles_q <= 32'd0;
+             debug_status_q <= 8'd0;
+             debug_addr_q <= 32'd0;
+             debug_info_q <= 32'd0;
+             internal_fault_q <= 1'b0;
+         end else begin
             rsp_valid_q <= 1'b0;
             rsp_error_q <= 1'b0;
-            mem_write_rejected_q <= 1'b0;
-            result_commit_q <= 1'b0;
+             mem_write_rejected_q <= 1'b0;
+             result_commit_q <= 1'b0;
 
-            if (mem_write_rejected_now) begin
-                mem_write_rejected_q <= 1'b1;
-                ownership_fault_q <= 1'b1;
-            end
+             if (mem_write_rejected_now)
+                 mem_write_rejected_q <= 1'b1;
 
-            if (fatal_event_now)
-                error_sticky_q <= 1'b1;
-            else if (clear_error_request_now)
-                error_sticky_q <= 1'b0;
+              if (internal_fault_event_now) begin
+                  internal_fault_q <= 1'b1;
+                  error_sticky_q <= 1'b1;
+              end else if (invalid_config_event_now) begin
+                  error_sticky_q <= 1'b1;
+                  done_sticky_q <= 1'b0;
+                   cycles_total_q <= 32'd0;
+                   compute_cycles_q <= 32'd0;
+              end else if (clear_error_request_now && !internal_fault_q)
+                 error_sticky_q <= 1'b0;
+
+             debug_status_q <= (debug_status_q & ~(clear_debug_request_now ? debug_clear_mask_now : 8'd0)) |
+                               debug_event_set_now;
+             if (debug_event_set_now != 8'd0) begin
+                 debug_addr_q <= debug_event_addr_now;
+                 debug_info_q <= debug_event_info_now;
+             end
 
             if (clear_done_request_now)
                 done_sticky_q <= 1'b0;
@@ -363,64 +650,77 @@ module fir_seq_accel #(
                 compute_elapsed_work_q <= compute_elapsed_work_q + 32'd1;
 
             // Architecture-independent prefetch and dispatch state machine.
-            case (exec_state_q)
-                EXEC_IDLE: begin
-                    // A START accepted below transitions to PREFETCH_REQUEST.
-                end
+            // An internal BRAM/engine fault terminates an active run on the
+            // first observed fault edge; host/debug errors never take this
+            // path and therefore cannot invalidate an otherwise valid run.
+            if (internal_fault_event_now && busy_q) begin
+                exec_state_q <= EXEC_IDLE;
+                busy_q <= 1'b0;
+                done_sticky_q <= 1'b0;
+                cycles_total_q <= elapsed_cycles_work_q + 32'd1;
+                compute_cycles_q <= first_input_seen_q ?
+                                    (compute_elapsed_work_q + 32'd1) : 32'd0;
+            end else begin
+                case (exec_state_q)
+                    EXEC_IDLE: begin
+                        // A START accepted below transitions to PREFETCH_REQUEST.
+                    end
 
-                EXEC_PREFETCH_REQUEST: begin
-                    // BRAM samples prefetch_req at this edge; wait for its
-                    // registered tap_valid/data response on the next cycle.
-                    exec_state_q <= EXEC_PREFETCH_WAIT;
-                end
+                    EXEC_PREFETCH_REQUEST: begin
+                        // BRAM samples prefetch_req at this edge; wait for its
+                        // registered tap_valid/data response on the next cycle.
+                        exec_state_q <= EXEC_PREFETCH_WAIT;
+                    end
 
-                EXEC_PREFETCH_WAIT: begin
-                    if (tap_valid) begin
-                        sample_vector_q[prefetch_index_q*32 +: 32] <= sample_tap;
-                        coefficient_vector_q[prefetch_index_q*32 +: 32] <= coefficient_tap;
-                        if (({1'b0, prefetch_index_q} + 6'd1) >= tap_count_reg_q[5:0]) begin
-                            exec_state_q <= EXEC_SELECTOR_SUBMIT;
-                        end else begin
-                            prefetch_index_q <= prefetch_index_q + 5'd1;
-                            exec_state_q <= EXEC_PREFETCH_REQUEST;
+                    EXEC_PREFETCH_WAIT: begin
+                        if (tap_valid) begin
+                            sample_vector_q[prefetch_index_q*32 +: 32] <= sample_tap;
+                            coefficient_vector_q[prefetch_index_q*32 +: 32] <= coefficient_tap;
+                            if (({1'b0, prefetch_index_q} + 6'd1) >= tap_count_reg_q[5:0]) begin
+                                exec_state_q <= EXEC_SELECTOR_SUBMIT;
+                            end else begin
+                                prefetch_index_q <= prefetch_index_q + 5'd1;
+                                exec_state_q <= EXEC_PREFETCH_REQUEST;
+                            end
                         end
                     end
-                end
 
-                EXEC_SELECTOR_SUBMIT: begin
-                    if (selector_in_valid && selector_in_ready)
-                        exec_state_q <= EXEC_SELECTOR_WAIT;
-                end
+                    EXEC_SELECTOR_SUBMIT: begin
+                        if (selector_in_valid && selector_in_ready)
+                            exec_state_q <= EXEC_SELECTOR_WAIT;
+                    end
 
-                EXEC_SELECTOR_WAIT: begin
-                    if (selector_out_valid) begin
+                    EXEC_SELECTOR_WAIT: begin
+                        if (selector_out_valid) begin
+                            exec_state_q <= EXEC_IDLE;
+                            busy_q <= 1'b0;
+                            cycles_total_q <= elapsed_cycles_work_q + 32'd1;
+                            compute_cycles_q <= first_input_seen_q ?
+                                                (compute_elapsed_work_q + 32'd1) : 32'd0;
+                            if (!bram_range_fault && !selector_out_error &&
+                                (selector_active_arch == run_arch_q) && (selector_cycles != 16'd0)) begin
+                                done_sticky_q <= 1'b1;
+                                result_commit_q <= 1'b1;
+                                result_commit_addr_q <= output_ptr_q;
+                                result_commit_data_q <= selector_result;
+                                sample_count_q <= sample_count_q + 32'd1;
+                            end else begin
+                                done_sticky_q <= 1'b0;
+                                error_sticky_q <= 1'b1;
+                                internal_fault_q <= 1'b1;
+                            end
+                        end
+                    end
+
+                    default: begin
                         exec_state_q <= EXEC_IDLE;
                         busy_q <= 1'b0;
-                        done_sticky_q <= 1'b1;
-                        cycles_total_q <= elapsed_cycles_work_q + 32'd1;
-                        compute_cycles_q <= first_input_seen_q ?
-                                            (compute_elapsed_work_q + 32'd1) : 32'd0;
-                        if (!bram_range_fault && !ownership_fault_q &&
-                            !mem_write_rejected_now && !selector_out_error &&
-                            (selector_active_arch == run_arch_q) && (selector_cycles != 16'd0)) begin
-                            result_commit_q <= 1'b1;
-                            result_commit_addr_q <= output_ptr_q;
-                            result_commit_data_q <= selector_result;
-                            sample_count_q <= sample_count_q + 32'd1;
-                        end else begin
-                            error_sticky_q <= 1'b1;
-                        end
+                        error_sticky_q <= 1'b1;
                     end
-                end
+                endcase
+            end
 
-                default: begin
-                    exec_state_q <= EXEC_IDLE;
-                    busy_q <= 1'b0;
-                    error_sticky_q <= 1'b1;
-                end
-            endcase
-
-            if (req_valid_i && req_ready_o) begin
+            if (req_accept_now) begin
                 rsp_valid_q <= 1'b1;
                 rsp_rdata_q <= 32'd0;
                 rsp_error_q <= 1'b0;
@@ -430,40 +730,33 @@ module fir_seq_accel #(
                 end else if (req_write_i) begin
                     if (req_wstrb_i != 4'hf) begin
                         rsp_error_q <= 1'b1;
-                    end else if (busy_q) begin
+                    end else if (csr_bus_access_event_now) begin
                         rsp_error_q <= 1'b1;
+                    end else if (busy_q) begin
+                        if (busy_start_noop_now) begin
+                            // V1.0: START while BUSY is a normal no-op.
+                        end else begin
+                            rsp_error_q <= 1'b1;
+                        end
                     end else begin
                         case (req_addr_i)
                             REG_CTRL: begin
-                                if ((req_wdata_i & 32'hffff_fff0) != 32'd0) begin
-                                    rsp_error_q <= 1'b1;
-                                end else if (req_wdata_i[0]) begin
-                                    if ((req_wdata_i[3:2] == 2'b11) ||
-                                        !config_valid || ownership_fault_q || bram_range_fault) begin
-                                        rsp_error_q <= 1'b1;
-                                        error_sticky_q <= 1'b1;
-                                    end else begin
-                                        busy_q <= 1'b1;
-                                        exec_state_q <= EXEC_PREFETCH_REQUEST;
-                                        prefetch_index_q <= 5'd0;
-                                        run_arch_q <= req_wdata_i[3:2];
-                                        sample_vector_q <= '0;
-                                        coefficient_vector_q <= '0;
-                                        done_sticky_q <= 1'b0;
-                                        elapsed_cycles_work_q <= 32'd0;
-                                        first_input_seen_q <= 1'b0;
-                                        compute_elapsed_work_q <= 32'd0;
-                                    end
+                                if (req_wdata_i[0] && !error_sticky_q && !invalid_config_event_now) begin
+                                    busy_q <= 1'b1;
+                                    exec_state_q <= EXEC_PREFETCH_REQUEST;
+                                    prefetch_index_q <= 5'd0;
+                                    run_arch_q <= req_wdata_i[3:2];
+                                    sample_vector_q <= '0;
+                                    coefficient_vector_q <= '0;
+                                    done_sticky_q <= 1'b0;
+                                    elapsed_cycles_work_q <= 32'd0;
+                                    first_input_seen_q <= 1'b0;
+                                    compute_elapsed_work_q <= 32'd0;
                                 end
                             end
                             REG_STATUS: begin
-                                if ((req_wdata_i & 32'hffff_fff9) != 32'd0) begin
-                                    rsp_error_q <= 1'b1;
-                                end else begin
-                                    if (req_wdata_i[1]) done_sticky_q <= 1'b0;
-                                    if (req_wdata_i[2] && !bram_range_fault && !ownership_fault_q)
-                                        error_sticky_q <= 1'b0;
-                                end
+                                // W1C state changes are handled by the
+                                // clear_*_request_now paths above.
                             end
                             REG_TAP_COUNT: begin
                                 tap_count_reg_q <= req_wdata_i;
@@ -477,7 +770,13 @@ module fir_seq_accel #(
                             REG_OUTPUT_PTR: begin
                                 output_ptr_q <= req_wdata_i;
                             end
-                            default: rsp_error_q <= 1'b1;
+                            REG_DBG_STATUS: begin
+                                // Debug W1C state changes are handled by the
+                                // clear_debug_request_now path above.
+                            end
+                            default: begin
+                                rsp_error_q <= 1'b1;
+                            end
                         endcase
                     end
                 end else begin
@@ -491,6 +790,15 @@ module fir_seq_accel #(
                         REG_CYCLES_TOTAL:   rsp_rdata_q <= cycles_total_q;
                         REG_SAMPLE_COUNT:   rsp_rdata_q <= sample_count_q;
                         REG_COMPUTE_CYCLES: rsp_rdata_q <= compute_cycles_q;
+                        REG_AUTO_CFG:       rsp_rdata_q <= 32'd0;
+                        REG_AUTO_SELECTED:  rsp_rdata_q <= 32'd0;
+                        REG_AUTO_MODEL_ID:  rsp_rdata_q <= 32'd0;
+                        REG_DBG_STATUS:     rsp_rdata_q <= {24'd0, debug_status_q};
+                        REG_DBG_ADDR:       rsp_rdata_q <= debug_addr_q;
+                        REG_DBG_INFO:       rsp_rdata_q <= debug_info_q;
+                         REG_RESULT_COUNT:   rsp_rdata_q <= sample_count_q;
+                        REG_CONTRACT_VERSION: rsp_rdata_q <= 32'd0;
+                        REG_BUILD_ID:       rsp_rdata_q <= 32'd0;
                         default: rsp_error_q <= 1'b1;
                     endcase
                 end

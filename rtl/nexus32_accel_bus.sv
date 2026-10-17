@@ -57,6 +57,26 @@ module nexus32_accel_bus #(
     localparam logic [19:0] PAGE_RESULT = 20'h00022;
     localparam logic [19:0] PAGE_ACCEL  = 20'h10005;
 
+    localparam int DBG_BUS_UNMAPPED = 0;
+    localparam int DBG_BUS_ACCESS = 1;
+    localparam int DBG_MEM_OWNERSHIP = 2;
+    localparam int DBG_RESULT_WRITE_FORBIDDEN = 3;
+    localparam logic [1:0] DBG_DIR_READ = 2'd0;
+    localparam logic [1:0] DBG_DIR_WRITE = 2'd1;
+    localparam logic [1:0] DBG_MASTER_CPU = 2'd0;
+
+    function automatic logic [31:0] make_debug_info(
+        input logic [2:0] event_code,
+        input logic [1:0] direction
+    );
+        begin
+            make_debug_info = 32'd0;
+            make_debug_info[2:0] = event_code;
+            make_debug_info[4:3] = direction;
+            make_debug_info[6:5] = DBG_MASTER_CPU;
+        end
+    endfunction
+
     typedef enum logic [2:0] {
         ST_IDLE,
         ST_CSR_REQUEST,
@@ -120,7 +140,9 @@ module nexus32_accel_bus #(
     logic csr_rsp_error;
 
     logic bank_owned;
-    logic mem_write_rejected;
+    logic [7:0] host_event_set_now;
+    logic [31:0] host_event_addr_now;
+    logic [31:0] host_event_info_now;
     logic result_commit;
     logic [31:0] result_commit_addr;
     logic signed [31:0] result_commit_data;
@@ -159,7 +181,7 @@ module nexus32_accel_bus #(
         host_coefficient_waddr = req_addr_i[11:2];
         host_coefficient_wdata = $signed(req_wdata_i);
 
-        if (accept_now && (req_addr_i[1:0] == 2'b00) && !req_write_i) begin
+        if (accept_now && (req_addr_i[1:0] == 2'b00) && !req_write_i && !bank_owned) begin
             if (page_sample_now)
                 host_sample_re = 1'b1;
             else if (page_coeff_now)
@@ -175,8 +197,33 @@ module nexus32_accel_bus #(
         end
     end
 
+    always_comb begin
+        host_event_set_now = 8'd0;
+        host_event_addr_now = req_addr_i;
+        host_event_info_now = 32'd0;
+        if (accept_now) begin
+            if (!page_coeff_now && !page_sample_now && !page_result_now && !page_accel_now) begin
+                host_event_set_now[DBG_BUS_UNMAPPED] = 1'b1;
+                host_event_info_now = make_debug_info(3'd0,
+                    req_write_i ? DBG_DIR_WRITE : DBG_DIR_READ);
+            end else if (page_result_now && req_write_i) begin
+                host_event_set_now[DBG_RESULT_WRITE_FORBIDDEN] = 1'b1;
+                host_event_info_now = make_debug_info(3'd3, DBG_DIR_WRITE);
+            end else if ((req_addr_i[1:0] != 2'b00) ||
+                         (req_write_i && (req_wstrb_i != 4'hf))) begin
+                host_event_set_now[DBG_BUS_ACCESS] = 1'b1;
+                host_event_info_now = make_debug_info(3'd1,
+                    req_write_i ? DBG_DIR_WRITE : DBG_DIR_READ);
+            end else if ((page_sample_now || page_coeff_now || page_result_now) && bank_owned) begin
+                host_event_set_now[DBG_MEM_OWNERSHIP] = 1'b1;
+                host_event_info_now = make_debug_info(3'd2,
+                    req_write_i ? DBG_DIR_WRITE : DBG_DIR_READ);
+            end
+        end
+    end
+
     assign result_read_en = accept_now && page_result_now && !req_write_i &&
-                            (req_addr_i[1:0] == 2'b00);
+                            (req_addr_i[1:0] == 2'b00) && !bank_owned;
     assign result_addr_matches_commit = result_commit &&
                                         (result_commit_addr[31:12] == PAGE_RESULT) &&
                                         (result_commit_addr[11:2] == req_addr_i[11:2]);
@@ -233,11 +280,14 @@ module nexus32_accel_bus #(
         .host_coefficient_raddr_i(host_coefficient_raddr),
         .host_coefficient_rvalid_o(host_coefficient_rvalid),
         .host_coefficient_rdata_o(host_coefficient_rdata),
-        .host_coefficient_we_i(host_coefficient_we),
-        .host_coefficient_waddr_i(host_coefficient_waddr),
-        .host_coefficient_wdata_i(host_coefficient_wdata),
-        .bank_owned_o(bank_owned),
-        .mem_write_rejected_o(mem_write_rejected),
+         .host_coefficient_we_i(host_coefficient_we),
+         .host_coefficient_waddr_i(host_coefficient_waddr),
+         .host_coefficient_wdata_i(host_coefficient_wdata),
+         .host_event_set_i(host_event_set_now),
+         .host_event_addr_i(host_event_addr_now),
+         .host_event_info_i(host_event_info_now),
+         .bank_owned_o(bank_owned),
+         .mem_write_rejected_o(),
         .result_commit_o(result_commit),
         .result_commit_addr_o(result_commit_addr),
         .result_commit_data_o(result_commit_data),
@@ -271,7 +321,16 @@ module nexus32_accel_bus #(
                         pending_error_q <= 1'b0;
                         memory_target_q <= MEM_NONE;
 
-                        if (req_addr_i[1:0] != 2'b00) begin
+                        if (!page_coeff_now && !page_sample_now && !page_result_now && !page_accel_now) begin
+                            pending_rdata_q <= 32'hdead_beef;
+                            pending_error_q <= 1'b1;
+                            state_q <= ST_RESPOND;
+                        end else if (page_result_now && req_write_i) begin
+                            pending_rdata_q <= 32'd0;
+                            pending_error_q <= 1'b1;
+                            state_q <= ST_RESPOND;
+                        end else if (req_addr_i[1:0] != 2'b00) begin
+                            pending_rdata_q <= 32'd0;
                             pending_error_q <= 1'b1;
                             state_q <= ST_RESPOND;
                         end else if (page_accel_now) begin
@@ -287,6 +346,10 @@ module nexus32_accel_bus #(
                             end else if (req_write_i && bank_owned) begin
                                 pending_error_q <= 1'b1;
                                 state_q <= ST_RESPOND;
+                            end else if (!req_write_i && bank_owned) begin
+                                pending_rdata_q <= 32'hbad0_0001;
+                                pending_error_q <= 1'b1;
+                                state_q <= ST_RESPOND;
                             end else if (req_write_i) begin
                                 state_q <= ST_RESPOND;
                             end else begin
@@ -297,7 +360,8 @@ module nexus32_accel_bus #(
                                 state_q <= ST_MEMORY_WAIT;
                             end
                         end else if (page_result_now) begin
-                            if (req_write_i) begin
+                            if (bank_owned) begin
+                                pending_rdata_q <= 32'hbad0_0001;
                                 pending_error_q <= 1'b1;
                                 state_q <= ST_RESPOND;
                             end else begin
