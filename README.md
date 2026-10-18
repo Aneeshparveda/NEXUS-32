@@ -6,7 +6,7 @@ NEXUS-32 is a PicoRV32-based SoC and a controlled comparison of three direct-for
 - a parallel engine with one multiplier per physical lane and a balanced reduction tree; and
 - an elastic registered pipelined reduction tree.
 
-The current integrated design is a simulation-tested control-plane and accelerator shell for a Basys 3 / Artix-7 target. It is not yet a complete block-processing accelerator or FPGA-validated implementation. The normative accelerator behavior is specified in [`docs/ACCELERATOR_CONTRACT_V1.md`](docs/ACCELERATOR_CONTRACT_V1.md).
+The current integrated design is a simulation-verified, serialized block-processing controller and accelerator shell for a Basys 3 / Artix-7 target. It supports the configured block-length range `1..1024`, zero-initialized FIR history, independent sample and successful-commit counts, and physical result-memory commits. It has not yet been FPGA-validated. The normative accelerator behavior is specified in [`docs/ACCELERATOR_CONTRACT_V1.md`](docs/ACCELERATOR_CONTRACT_V1.md).
 
 ## Target and architecture
 
@@ -28,9 +28,23 @@ PicoRV32
                     └── pipelined (`fir_pipelined_engine`)
 ```
 
-`LANES` is supported at 4, 8, 16, or 32; the integrated shell defaults to 32. The selector serializes the first integrated shell to one outstanding operation, so selector/SoC results are functional smoke results, not standalone throughput or PPA measurements. The direct pipelined engine retains its own ready/valid throughput behavior.
+`LANES` is supported at 4, 8, 16, or 32; the integrated shell defaults to 32. The selector and wrapper serialize the integrated shell to one outstanding operation, so selector/SoC results are functional block-processing results, not standalone throughput or PPA measurements. The direct pipelined engine retains its own ready/valid throughput behavior, but that throughput is not exposed as the serialized shell's top-level throughput.
 
-The integrated shell prefetches one complete tap window, dispatches one operation, and emits one result commit. It is a single-buffer design. Sample B/ping-pong memory, DMA, streaming block processing, and AutoArch are not implemented in this repository state.
+The integrated shell is a single-buffer block controller. After an accepted START snapshots the configuration, it captures one sample at a time, forms a stable window from the pending sample and accepted-input history, dispatches one engine operation, and waits for the corresponding physical result-memory commit before advancing. `SAMPLE_COUNT` is the configured block length and `RESULT_COUNT` counts only successful commits; `DONE` is asserted after the final commit. Accepted `CTRL.RESET` cancels pending controller state and prevents a pending physical result write, but does not clear BRAM contents. Sample B/ping-pong memory, DMA, streaming interfaces, and AutoArch policy are not implemented in this repository state.
+
+## Current block-processing status
+
+The serialized controller now implements the core multi-sample path described by the contract:
+
+- active tap count, pointers, and block length are snapshotted on START;
+- history starts at zero for each run and advances only when an engine input transfer is accepted;
+- pending windows remain stable while the engine is not ready;
+- output transfer and physical result commit are separate events;
+- `RESULT_COUNT` advances only after a successful physical commit;
+- a successful block satisfies `BUSY=0`, `DONE=1`, `ERROR=0`, and `RESULT_COUNT=SAMPLE_COUNT`; and
+- internal faults leave earlier commits physically present but invalidate the block until RESET.
+
+The detailed 1024-sample matrix, partial-fault checks, and measured pipeline latency are recorded in [`docs/VERIFICATION_CLOSURE.md`](docs/VERIFICATION_CLOSURE.md). This is simulation evidence for the current serialized implementation, not a claim that every V1.0 contract or milestone checklist item is complete.
 
 ## Numerical contract
 
@@ -87,18 +101,18 @@ CSR addresses below are byte offsets from `0x1000_5000`. `CTRL` and `STATUS` use
 | `0x04` | `STATUS` | `BUSY`, sticky `DONE`, sticky `ERROR` | Implemented with idle W1C recovery rules |
 | `0x08` | `TAP_COUNT` | Configured tap count, validated against the selected build | Implemented |
 | `0x0C` | `COEFF_PTR` | Coefficient byte pointer | Implemented |
-| `0x10` | `INPUT_PTR` | Input byte pointer | Implemented for the single prefetched window |
-| `0x14` | `OUTPUT_PTR` | Result byte pointer | Implemented for the single result commit |
-| `0x18` | `CYCLES_TOTAL` | Run-level timing counter | Published, but exact contract edge semantics remain incomplete |
-| `0x1C` | `SAMPLE_COUNT` | Contract: configured block length, `1..1024` | Not separately implemented; current writes are rejected, readback uses the legacy successful-commit counter, and configured block iteration is absent |
-| `0x20` | `COMPUTE_CYCLES` | Contract: first input-transfer to last output-transfer span | Published, but current shell timing is not yet the complete edge-defined contract |
+| `0x10` | `INPUT_PTR` | Input byte pointer | Implemented as the source of the serialized sample block |
+| `0x14` | `OUTPUT_PTR` | Result byte pointer | Implemented as the base for per-sample physical commits |
+| `0x18` | `CYCLES_TOTAL` | Run-level timing counter | Implemented from START through final commit, or through internal-fault termination |
+| `0x1C` | `SAMPLE_COUNT` | Contract: configured block length, `1..1024` | Implemented as an independent configured length and snapshotted on START |
+| `0x20` | `COMPUTE_CYCLES` | Contract: first input-transfer to last output-transfer span | Implemented and checked with an independent transfer-edge scoreboard |
 | `0x24` | `AUTO_CFG` | Reserved/deferred | Reads return zero; writes are rejected |
 | `0x28` | `AUTO_SELECTED` | Reserved/deferred | Reads return zero; writes are rejected |
 | `0x2C` | `AUTO_MODEL_ID` | Reserved/deferred | Reads return zero; writes are rejected |
 | `0x30` | `DBG_STATUS` | Sticky debug event bits | Bits 0–5 are idle W1C; bits 6–7 are RESET-only |
 | `0x34` | `DBG_ADDR` | Address for the latest selected debug event | Implemented with fixed event priority and tie-breaking |
 | `0x38` | `DBG_INFO` | Event, direction, and master metadata | Implemented |
-| `0x3C` | `RESULT_COUNT` | Contract: successful result-memory commits | Currently aliases the same legacy sample/commit counter as `SAMPLE_COUNT` |
+| `0x3C` | `RESULT_COUNT` | Contract: successful result-memory commits | Implemented as an independent successful physical-commit counter |
 | `0x40` | `CONTRACT_VERSION` | Reserved/deferred | Reads return zero; writes are rejected |
 | `0x44` | `BUILD_ID` | Reserved/deferred | Reads return zero; writes are rejected |
 
@@ -113,15 +127,12 @@ For a same-class tie, the lowest address wins, then writes beat reads, then the 
 
 ## Known implementation limitations
 
-These are deliberate, documented limitations; they are not claims of completed V1.0 block behavior:
+These remain deliberate, documented limitations; the closure above is not a claim of completed V1.0 hardware validation or of every contract checklist item:
 
-- `SAMPLE_COUNT` is not yet a separately implemented configured block length. The current shell executes one prefetched window rather than a configured sample block.
-- `RESULT_COUNT` still shares the legacy sample/commit counter; it is not yet an independent counter for a multi-result block.
-- Complete block iteration, pending-sample capture, sample history, and atomic window advancement on engine input acceptance are not implemented.
-- Output transfer and result-memory commit are not yet modeled as independent events for a full block, so the complete result-validity predicate is not available for multi-sample processing.
-- Some run-level timing semantics remain incomplete. In particular, the current shell counters are not yet the full `e_start`/`e_done` and first-input/last-output transfer-edge definitions in §8 of the contract.
-- The pipelined engine's documented edge-to-edge input-accept to output-transfer latency remains **unverified**. Its `cycles_o` field is nominal no-stall pipeline depth, not proof of measured waveform latency.
-- Sample B, DMA, streaming interfaces, AutoArch policy, UART/GPIO/timer/IRQ/debug-monitor integration, and a full SoC bus fabric are outside the current implementation.
+- The integrated wrapper is single-buffered and serializes one outstanding operation. Sample B/ping-pong memory, DMA, streaming interfaces, and AutoArch policy are outside the current implementation.
+- The direct pipelined engine's no-stall transfer-edge latency is measured in the closure report; its nominal `cycles_o` field and the measured transfer latency are intentionally distinct. Backpressure stability is checked, but stalled elapsed latency is not a standalone performance claim.
+- Selector/SoC measurements include wrapper and serialization overhead and must not be presented as standalone architecture throughput or PPA results.
+- UART/GPIO/timer/IRQ/debug-monitor integration and a full SoC bus fabric remain outside the current implementation.
 - Vivado synthesis, timing closure, PPA/resource analysis, bitstream validation, board programming, and physical Basys 3 validation have not been completed.
 
 ## Repository layout
@@ -161,9 +172,12 @@ These are the project-level verification commands currently available:
 python3 -m unittest discover -s tests -v
 bash scripts/run_rtl_smoke.sh
 bash scripts/run_soc_smoke.sh all
+bash scripts/run_verification_closure.sh
 ```
 
 The Python command checks the signed Q16.16 reference behavior, saturation boundaries, negative arithmetic shift behavior, tap-count validation, and block-model cases. The RTL smoke command runs the arithmetic primitives, sequential engine, synchronous source, tap BRAM, accelerator shell, architecture integration, bus, SoC, invalid-fetch, backpressure, and reset-recovery simulations when their prerequisites are present. The SoC smoke command repeats the bus/SoC suites for `LANES=4, 8, 16, 32`.
+
+The verification-closure command runs the independent 1024-sample block/timing scoreboard and the direct pipelined-latency experiment for `LANES=4, 8, 16, 32`. Its generated binaries and logs are written under ignored `results/verification-closure/`; the durable results summary is [`docs/VERIFICATION_CLOSURE.md`](docs/VERIFICATION_CLOSURE.md).
 
 Passing these commands means that the exercised reference and RTL simulations completed successfully in the selected simulator/toolchain. It does **not** mean that the design has passed FPGA synthesis, timing closure, implementation, bitstream generation, board programming, power/resource characterization, or physical Basys 3 testing.
 
