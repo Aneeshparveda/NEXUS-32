@@ -5,12 +5,16 @@
 // Run from the repository root (no generated fixtures or network required):
 // mkdir -p results/rtl
 // iverilog -g2012 -Wall -s tb_fir_seq_accel_block_processing \
+//   -Ptb_fir_seq_accel_block_processing.LANES=32 \
 //   -o results/rtl/tb_fir_seq_accel_block_processing.vvp \
 //   rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
 //   rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv \
 //   rtl/fir_arch_selector.sv rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv \
 //   rtl/nexus32_accel_bus.sv tests/rtl/tb_fir_seq_accel_block_processing.sv
 // vvp results/rtl/tb_fir_seq_accel_block_processing.vvp
+// Repeat with -Ptb_fir_seq_accel_block_processing.LANES=4, =8, =16, =32
+// (one integer per compilation, not a comma-separated -P argument). All lane
+// builds run the SAME assertions and sequential/parallel/pipelined cases.
 //
 // This bench observes the existing selector boundary rather than referring to
 // nonexistent future pending/history register names. While input valid is high,
@@ -21,8 +25,9 @@
 // directly on START and throughout each run; CSR readback is not their oracle.
 // Result commits are observed at the REAL bus result_mem write edge, not when
 // the shell raises its registered write request. No production logic is mocked.
-module tb_fir_seq_accel_block_processing;
-    localparam int LANES = 32;
+module tb_fir_seq_accel_block_processing #(
+    parameter int LANES = 32
+);
     localparam int RUN_BOUND = 1000;
     localparam logic [31:0] CSR_BASE = 32'h1000_5000;
     localparam logic [31:0] COEFF_BASE = 32'h0002_0000;
@@ -80,6 +85,10 @@ module tb_fir_seq_accel_block_processing;
     logic reject_watch = 1'b0, flush_guard = 1'b0;
     logic gate_installed = 1'b0, stall_engine = 1'b0;
     logic [31:0] guard_before, guard_after;
+    integer edge_cycle = 0, start_cycle = -1, first_output_cycle = -1, first_commit_cycle = -1;
+    logic reset_commit_probe = 1'b0;
+    integer observed_reset_cycle = -1;
+    logic reset_saw_output = 1'b0, reset_saw_commit = 1'b0;
 
     // Gate the SINGLE ready signal used by both the shell and the selector's
     // own acceptance logic. Forcing only the shell's copy would allow a phantom
@@ -285,18 +294,29 @@ module tb_fir_seq_accel_block_processing;
         logic [LANES*32-1:0] held_window, held_coefficients;
         logic [31:0] written_address, written_data;
         integer k;
+        edge_cycle = edge_cycle + 1;
         reset_edge = rst || dut.u_accel.soft_reset_request_now;
         input_edge = dut.u_accel.u_arch_selector.in_valid_i &&
                      dut.u_accel.u_arch_selector.in_ready_o;
         output_edge = dut.u_accel.u_arch_selector.out_valid_o &&
                       dut.u_accel.u_arch_selector.out_ready_i;
+        // Match nexus32_accel_bus's result_mem always_ff write enable EXACTLY.
+        // CTRL.RESET clears result_commit_q by NBA; it does not guard the bus
+        // RAM port. A previously registered request still writes on that edge.
+        // A same-edge output whose NEW write request is cancelled by the
+        // controller reset is not result_commit and must NOT count as a write.
+        // Do not substitute !reset_edge here: that would hide real bus writes.
         commit_edge = !rst && dut.result_commit &&
-                      (dut.result_commit_addr >= RESULT_BASE) &&
-                      (dut.result_commit_addr < RESULT_LIMIT) &&
+                      (dut.result_commit_addr[31:12] == RESULT_BASE[31:12]) &&
                       (dut.result_commit_addr[1:0] == 2'b00);
         written_address = dut.result_commit_addr;
         written_data = dut.result_commit_data;
         stalled_edge = 1'b0;
+        if (reset_commit_probe && dut.u_accel.soft_reset_request_now && !rst) begin
+            observed_reset_cycle = edge_cycle;
+            reset_saw_output = output_edge;
+            reset_saw_commit = commit_edge;
+        end
 
         if ((watch_run || reject_watch) && !reset_edge) begin
             if (dut.u_accel.prefetch_req) legacy_requests = legacy_requests + 1;
@@ -323,6 +343,7 @@ module tb_fir_seq_accel_block_processing;
                 check(!started, INTERFACE, "a second run was accepted while a run was active");
                 started = 1'b1;
                 snapshot_live = 1'b1;
+                start_cycle = edge_cycle;
             end
             if (watch_run && started) begin
                 if (dut.u_accel.u_arch_selector.in_valid_i === 1'b1)
@@ -351,6 +372,7 @@ module tb_fir_seq_accel_block_processing;
                     input_count = input_count + 1;
                 end
                 if (output_edge) begin
+                    if (first_output_cycle < 0) first_output_cycle = edge_cycle;
                     check(output_count < input_count && output_count < cfg_m, TRAVERSAL,
                           "engine output without a unique ordered accepted input");
                     if (output_count < cfg_m)
@@ -362,23 +384,33 @@ module tb_fir_seq_accel_block_processing;
                           "output came from the wrong selected architecture");
                     output_count = output_count + 1;
                 end
-                if (dut.result_commit) begin
-                    check(commit_edge && commit_count < cfg_m && commit_count < output_count,
-                          COMMIT, "invalid/extra write or result write without an output transfer");
-                    check(written_address === cfg_output + 32'(4*commit_count), COMMIT,
-                          $sformatf("commit[%0d] address %08x expected %08x", commit_count,
-                                    written_address, cfg_output + 32'(4*commit_count)));
-                    if (commit_count < cfg_m)
-                        check(written_data === expected[commit_count], NUMERIC,
-                              $sformatf("commit[%0d] data %08x expected golden %08x",
-                                        commit_count, written_data, expected[commit_count]));
-                    if (commit_edge) commit_count = commit_count + 1;
-                end
+            end
+        end
+
+        // Physical observation is independent of the controller reset branch.
+        // Architectural RESULT_COUNT is reset on CTRL.RESET, but an earlier
+        // registered write must still be accounted for if the real bus does it.
+        if (watch_run && !rst && dut.result_commit) begin
+            check(commit_edge && commit_count < cfg_m && commit_count < output_count,
+                  COMMIT, "invalid/extra write or result write without an output transfer");
+            check(written_address === cfg_output + 32'(4*commit_count), COMMIT,
+                  $sformatf("commit[%0d] address %08x expected %08x", commit_count,
+                            written_address, cfg_output + 32'(4*commit_count)));
+            if (commit_count < cfg_m)
+                check(written_data === expected[commit_count], NUMERIC,
+                      $sformatf("commit[%0d] data %08x expected golden %08x",
+                                commit_count, written_data, expected[commit_count]));
+            if (commit_edge) begin
+                if (first_commit_cycle < 0) first_commit_cycle = edge_cycle;
+                commit_count = commit_count + 1;
             end
         end
 
         #1;
         if (snapshot_live) check_active_snapshot();
+        if (watch_run && commit_edge)
+            check(dut.result_mem[written_address[11:2]] === written_data, COMMIT,
+                  "write request did not reach physical result memory on the observed edge");
         if (watch_run && started && !reset_edge) begin
             if (stalled_edge) begin
                 check(dut.u_accel.u_arch_selector.in_valid_i === 1'b1 &&
@@ -386,9 +418,6 @@ module tb_fir_seq_accel_block_processing;
                       active_lanes(dut.u_accel.u_arch_selector.coefficient_vector_i) === held_coefficients,
                       STALL, "pending valid/sample/complete active window changed before acceptance");
             end
-            if (commit_edge)
-                check(dut.result_mem[written_address[11:2]] === written_data, COMMIT,
-                      "write request did not reach physical result memory on the observed edge");
             check(dut.u_accel.result_count_q === 32'(commit_count), COMMIT,
                   $sformatf("RESULT_COUNT=%0d but physical commits=%0d (must not count e_out)",
                             dut.u_accel.result_count_q, commit_count));
@@ -462,7 +491,8 @@ module tb_fir_seq_accel_block_processing;
             for (k = 0; k < 4; k = k + 1)
                 if (reference_output(k, taps) !== expected[k])
                     tb_error($sformatf("SV numerical oracle disagrees with golden fixture at n=%0d", k));
-            $display("CASE %0d: %s (M=%0d T=%0d ARCH=%0d)", cases, case_name, m, taps, architecture);
+            $display("CASE %0d: %s (LANES=%0d M=%0d T=%0d ARCH=%0d)",
+                     cases, case_name, LANES, m, taps, architecture);
         end
     endtask
 
@@ -506,6 +536,9 @@ module tb_fir_seq_accel_block_processing;
             commit_count = 0;
             stalled_cycles = 0;
             snapshot_checks = 0;
+            start_cycle = -1;
+            first_output_cycle = -1;
+            first_commit_cycle = -1;
             legacy_requests = 0;
             sample_requests = 0;
             coefficient_requests = 0;
@@ -777,6 +810,82 @@ module tb_fir_seq_accel_block_processing;
         end
     endtask
 
+    // Real-interface reset/write race coverage, with NO force or mocked write.
+    // Measure an identical no-stall run, then schedule a host CTRL.RESET so
+    // the bus forwards it on the measured output or physical-write edge.
+    // These are stimulus offsets, NOT assertions about contractual latency.
+    task automatic scheduled_commit_reset_cases(input integer architecture);
+        integer output_delay, commit_delay, phase, target_cycle, k;
+        logic [31:0] wanted_word;
+        begin
+            normal_case(1, 3, architecture, 1);
+            output_delay = first_output_cycle - start_cycle;
+            commit_delay = first_commit_cycle - start_cycle;
+            if (first_output_cycle < 0 || first_commit_cycle < 0 || output_delay < 6 ||
+                commit_delay <= output_delay)
+                tb_error("cannot calibrate distinct output/write edges for real-bus reset stimulus");
+            // Seed a DIFFERENT physical result through a real completed run.
+            // A cancelled replay must leave this word intact, not merely rewrite
+            // the same value and accidentally satisfy a memory-preservation check.
+            normal_case(1, 1, architecture, 0);
+            for (phase = 0; phase < 2; phase = phase + 1) begin
+                new_case($sformatf("CTRL.RESET at %s arch=%0d",
+                                  (phase == 0) ? "output opportunity" : "registered write", architecture),
+                         1, 3, architecture, 1, 1'b1);
+                initialize_memories();
+                configure_run();
+                if (gate_installed) tb_error("scheduled-reset cases must not use the ready force");
+                for (k = 0; k < 1024; k = k + 1) memory_before[k] = dut.result_mem[k];
+                if (memory_before[result_word] === expected[0])
+                    tb_error("reset/write fixture must distinguish old memory from scheduled data");
+                observed_reset_cycle = -1;
+                reset_saw_output = 1'b0;
+                reset_saw_commit = 1'b0;
+                start_run();
+                target_cycle = start_cycle + ((phase == 0) ? output_delay : commit_delay);
+                // csr_write waits for the next negedge before driving the host:
+                // drive at target-2, host accepts at target-1, controller accepts
+                // at target. Check the observed coincidence below; never credit
+                // a reset that merely happened near the requested event.
+                if (edge_cycle > target_cycle-3)
+                    tb_error("host returned from START too late to schedule the measured reset edge");
+                while (edge_cycle < target_cycle-3) @(negedge clk);
+                reset_commit_probe = 1'b1;
+                csr_write(CTRL, 32'd2, 1'b0);
+                reset_commit_probe = 1'b0;
+                if (observed_reset_cycle != target_cycle)
+                    tb_error("scheduled CTRL.RESET missed its measured target edge");
+                if (phase == 0) begin
+                    check(reset_saw_output && !reset_saw_commit, RESET,
+                          "reset did not coincide with an output whose new write was cancelled");
+                    check(commit_count == 0 && first_commit_cycle == -1, COMMIT,
+                          "CTRL.RESET-cancelled output was counted as a physical commit");
+                end else begin
+                    // The bus has no software-reset write guard. This request
+                    // was registered BEFORE reset, so the actual RAM write must
+                    // be observed even though architectural counters reset to 0.
+                    check(reset_saw_commit && commit_count == 1 && first_commit_cycle == target_cycle,
+                          COMMIT, "already-registered reset-edge bus write was lost by the observer");
+                end
+                csr_expect(STATUS, 32'd0, RESET);
+                csr_expect(RESULT_COUNT, 32'd0, RESET);
+                csr_expect(CYCLES_TOTAL, 32'd0, RESET);
+                csr_expect(COMPUTE_CYCLES, 32'd0, RESET);
+                repeat (20) @(negedge clk);
+                for (k = 0; k < 1024; k = k + 1) begin
+                    wanted_word = (phase == 1 && k == result_word) ? expected[0] : memory_before[k];
+                    check(dut.result_mem[k] === wanted_word, RESET,
+                          $sformatf("reset/write race changed unexpected physical result word %0d", k));
+                end
+                $display("RESET_COMMIT_TRACE LANES=%0d arch=%0d phase=%0d output_opportunity=%b physical_write=%b physical_commits=%0d",
+                         LANES, architecture, phase, reset_saw_output, reset_saw_commit, commit_count);
+                watch_run = 1'b0;
+                snapshot_live = 1'b0;
+                flush_guard = 1'b0;
+            end
+        end
+    endtask
+
     initial begin : RUN_ALL_CASES
         integer arch, m, k, gap_failures, regression_failures;
         for (k = 0; k < CATEGORY_COUNT; k = k + 1) category_failures[k] = 0;
@@ -804,6 +913,7 @@ module tb_fir_seq_accel_block_processing;
             reset_pending_case(arch, 1'b0, 0);
             reset_pending_case(arch, 1'b1, 0);
             reset_pending_case(arch, 1'b1, 1);
+            scheduled_commit_reset_cases(arch);
         end
         for (k = 0; k < 3; k = k + 1) invalid_case(k);
 
@@ -816,8 +926,8 @@ module tb_fir_seq_accel_block_processing;
         end
         // These labels classify diagnostics; NO expected-failure waiver exists.
         // Any missing function, regression or harness error produces nonzero exit.
-        $display("BLOCK_PROCESSING_SUMMARY cases=%0d contract_failures=%0d known_gap_categories=%0d unexpected_regression_categories=%0d testbench_errors=%0d",
-                 cases, failures, gap_failures, regression_failures, testbench_errors);
+        $display("BLOCK_PROCESSING_SUMMARY LANES=%0d cases=%0d contract_failures=%0d known_gap_categories=%0d unexpected_regression_categories=%0d testbench_errors=%0d",
+                 LANES, cases, failures, gap_failures, regression_failures, testbench_errors);
         if (failures != 0 || testbench_errors != 0)
             $fatal(1, "Batch 3B-3A block-processing acceptance requirements are NOT met");
         $display("PASS: Batch 3B-3A block-processing acceptance contract");
