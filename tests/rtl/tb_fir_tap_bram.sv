@@ -166,6 +166,68 @@ module tb_fir_tap_bram;
         end
     endtask
 
+    task automatic check_legacy_tap_priority_arbitration;
+        begin
+            // A legacy paired tap request has priority over independent reads
+            // asserted on the same edge. The independent requests are not
+            // accepted and therefore must not produce response-valid pulses.
+            @(negedge clk_i);
+            tap_index_i = 5'd0;
+            tap_req_i = 1'b1;
+            accelerator_sample_raddr_i = 10'd11;
+            accelerator_coefficient_raddr_i = 10'd21;
+            accelerator_sample_re_i = 1'b1;
+            accelerator_coefficient_re_i = 1'b1;
+            #1;
+            if (tap_valid_o !== 1'b0 ||
+                accelerator_sample_rvalid_o !== 1'b0 ||
+                accelerator_coefficient_rvalid_o !== 1'b0)
+                $fatal(1, "legacy-priority arbitration asserted a response before the request edge");
+            @(posedge clk_i);
+            #1;
+            if (tap_valid_o !== 1'b1)
+                $fatal(1, "legacy-priority arbitration suppressed the paired tap response");
+            if (sample_tap_o !== 32'sd101 || coefficient_tap_o !== 32'sd1001)
+                $fatal(1, "legacy-priority arbitration returned the wrong paired tap data");
+            if (accelerator_sample_rvalid_o !== 1'b0 ||
+                accelerator_coefficient_rvalid_o !== 1'b0)
+                $fatal(1, "legacy-priority arbitration did not suppress independent response-valid signals");
+            if (range_fault_o !== 1'b0)
+                $fatal(1, "valid legacy-priority arbitration raised a spurious range fault");
+
+            // A subsequent independent request must be accepted normally and
+            // return data for its own addresses, not the suppressed request.
+            @(negedge clk_i);
+            tap_req_i = 1'b0;
+            accelerator_sample_raddr_i = 10'd12;
+            accelerator_coefficient_raddr_i = 10'd22;
+            accelerator_sample_re_i = 1'b1;
+            accelerator_coefficient_re_i = 1'b1;
+            @(posedge clk_i);
+            #1;
+            if (tap_valid_o !== 1'b0)
+                $fatal(1, "later independent read unexpectedly produced a legacy tap response");
+            if (accelerator_sample_rvalid_o !== 1'b1 ||
+                accelerator_coefficient_rvalid_o !== 1'b1)
+                $fatal(1, "later independent read response-valid alignment is incorrect");
+            if (accelerator_sample_rdata_o !== 32'sd303 ||
+                accelerator_coefficient_rdata_o !== 32'sd3003)
+                $fatal(1, "later independent read returned suppressed or misaligned data");
+            if (range_fault_o !== 1'b0)
+                $fatal(1, "later valid independent read raised a spurious range fault");
+
+            @(negedge clk_i);
+            accelerator_sample_re_i = 1'b0;
+            accelerator_coefficient_re_i = 1'b0;
+            @(posedge clk_i);
+            #1;
+            if (tap_valid_o !== 1'b0 ||
+                accelerator_sample_rvalid_o !== 1'b0 ||
+                accelerator_coefficient_rvalid_o !== 1'b0)
+                $fatal(1, "legacy-priority arbitration response-valid pulses did not clear");
+        end
+    endtask
+
     task automatic check_sample_accelerator_collision(
         input logic [9:0] address,
         input logic signed [31:0] write_data
@@ -298,6 +360,8 @@ module tb_fir_tap_bram;
         #1;
         if (cfg_valid_o !== 1'b1)
             $fatal(1, "valid 3-tap configuration rejected");
+
+        check_legacy_tap_priority_arbitration();
 
         // Consecutive requests exercise one-read-per-cycle throughput and order.
         @(negedge clk_i);
