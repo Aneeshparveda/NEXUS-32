@@ -152,6 +152,9 @@ module nexus32_accel_bus #(
     logic result_read_valid_q;
     logic [31:0] result_read_data_q;
     logic result_addr_matches_commit;
+    logic csr_reset_accept;
+    logic effective_reset;
+    logic result_mem_we;
 
     assign req_ready_o = (state_q == ST_IDLE);
     assign rsp_valid_o = rsp_valid_q;
@@ -228,6 +231,19 @@ module nexus32_accel_bus #(
                                         (result_commit_addr[31:12] == PAGE_RESULT) &&
                                         (result_commit_addr[11:2] == req_addr_i[11:2]);
 
+    // Match the accelerator's accepted CTRL.RESET request so a pending
+    // result commit cannot reach the physical result-memory write port on
+    // the same edge as the synchronous accelerator reset.
+    assign csr_reset_accept = csr_req_valid && csr_req_ready && csr_req_write &&
+                              (csr_req_addr == 12'h000) &&
+                              (csr_req_wstrb == 4'hf) && csr_req_wdata[1] &&
+                              (csr_req_wdata[31:4] == 28'd0);
+    assign effective_reset = rst_i || csr_reset_accept;
+    assign result_mem_we = result_commit &&
+                           (result_commit_addr[31:12] == PAGE_RESULT) &&
+                           (result_commit_addr[1:0] == 2'b00) &&
+                           !effective_reset;
+
     // A registered result-memory port with write-through for a same-cycle
     // result commit. The host has read-only access to this region.
     always_ff @(posedge clk_i) begin
@@ -242,8 +258,7 @@ module nexus32_accel_bus #(
                 else
                     result_read_data_q <= result_mem[req_addr_i[11:2]];
             end
-            if (result_commit && (result_commit_addr[31:12] == PAGE_RESULT) &&
-                (result_commit_addr[1:0] == 2'b00)) begin
+            if (result_mem_we) begin
                 result_mem[result_commit_addr[11:2]] <= result_commit_data;
             end
         end
