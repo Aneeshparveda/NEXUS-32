@@ -282,7 +282,12 @@ module tb_fir_seq_accel_block_1024 #(
                      dut.u_accel.u_arch_selector.in_ready_o && !reset_edge;
         output_edge = dut.u_accel.u_arch_selector.out_valid_o &&
                       dut.u_accel.u_arch_selector.out_ready_i && !reset_edge;
-        commit_edge = dut.result_mem_we && !reset_edge;
+        // The bus writes result_mem only on its non-reset sequential branch
+        // when result_mem_we is true. Software reset is already included in
+        // result_mem_we's effective_reset guard and must not be masked here:
+        // the existing block-processing acceptance bench observes this same
+        // signal to prove both CTRL.RESET commit-race phases are cancelled.
+        commit_edge = !rst && dut.result_mem_we;
         error_edge = dut.u_accel.internal_fault_event_now &&
                      dut.u_accel.busy_q && !reset_edge;
         written_address = dut.result_commit_addr;
