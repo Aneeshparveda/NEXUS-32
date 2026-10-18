@@ -50,6 +50,7 @@ module tb_fir_seq_accel #(
 
     localparam logic [11:0] REG_CTRL = 12'h000;
     localparam logic [11:0] REG_STATUS = 12'h004;
+    localparam logic [11:0] REG_SAMPLE_COUNT = 12'h01c;
     localparam logic [11:0] REG_DBG_STATUS = 12'h030;
     localparam logic [11:0] REG_DBG_ADDR = 12'h034;
     localparam logic [11:0] REG_DBG_INFO = 12'h038;
@@ -288,6 +289,8 @@ module tb_fir_seq_accel #(
 
         csr_write(12'h008, 32'd4, transaction_error);
         if (transaction_error) $fatal(1, "FAIL: TAP_COUNT config write rejected");
+        csr_write(REG_SAMPLE_COUNT, 32'd1, transaction_error);
+        if (transaction_error) $fatal(1, "FAIL: SAMPLE_COUNT config write rejected");
         csr_write(12'h00c, 32'h0002_0000, transaction_error);
         if (transaction_error) $fatal(1, "FAIL: COEFF_PTR config write rejected");
         csr_write(12'h010, 32'h0002_1002, transaction_error);
@@ -304,7 +307,9 @@ module tb_fir_seq_accel #(
         csr_write(12'h004, 32'h0000_0004, transaction_error);
         if (transaction_error) $fatal(1, "FAIL: STATUS error W1C rejected");
 
-        // Correct input pointer and run four unity products: 4.0 in Q16.16.
+        // Correct input pointer and run one block sample.  The contract starts
+        // each block with zero history, so a four-tap first window is one unity
+        // product rather than a forward-looking four-word dot product.
         csr_write(12'h010, 32'h0002_1000, transaction_error);
         if (transaction_error) $fatal(1, "FAIL: valid INPUT_PTR write rejected");
         csr_write(REG_CTRL, 32'd1, transaction_error);
@@ -313,8 +318,8 @@ module tb_fir_seq_accel #(
         #1;
         if (result_commit_addr !== 32'h0002_2000)
             $fatal(1, "FAIL: result address mismatch %08x", result_commit_addr);
-        if (result_commit_data !== 32'sh0004_0000)
-            $fatal(1, "FAIL: four-tap result mismatch %08x", result_commit_data);
+        if (result_commit_data !== 32'sh0001_0000)
+            $fatal(1, "FAIL: zero-history four-tap result mismatch %08x", result_commit_data);
         wait (busy === 1'b0);
         csr_read(12'h004, read_value, transaction_error);
         if (transaction_error || !read_value[1] || read_value[2] || read_value[0])
@@ -352,6 +357,8 @@ module tb_fir_seq_accel #(
         rst = 1'b0;
         csr_write(12'h008, 32'(LANES), transaction_error);
         if (transaction_error) $fatal(1, "FAIL: %0d-tap config write rejected", LANES);
+        csr_write(REG_SAMPLE_COUNT, 32'd1, transaction_error);
+        if (transaction_error) $fatal(1, "FAIL: SAMPLE_COUNT reset-recovery config write rejected");
         csr_write(12'h00c, 32'h0002_0000, transaction_error);
         csr_write(12'h010, 32'h0002_1000, transaction_error);
         csr_write(12'h014, 32'h0002_2000, transaction_error);

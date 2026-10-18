@@ -39,6 +39,8 @@ _start:
     lui     t0, 0x22
     sw      t0, 20(s3)             # OUTPUT_PTR
     li      t0, 1
+    sw      t0, 28(s3)             # SAMPLE_COUNT: one legacy window
+    li      t0, 1
     sw      t0, 0(s3)              # CTRL.START
 
 poll_done:

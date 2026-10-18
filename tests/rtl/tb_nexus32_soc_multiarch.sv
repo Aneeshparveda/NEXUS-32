@@ -41,8 +41,8 @@ module tb_nexus32_soc_multiarch #(
                     $fatal(1, "boot signature mismatch: %08x", dut.dmem[0]);
                 if (dut.dmem[1] !== 32'h00020000)
                     $fatal(1, "last architecture result mismatch: %08x", dut.dmem[1]);
-                if (dut.dmem[3] !== 32'd3)
-                    $fatal(1, "expected three result commits, sample count signature=%0d", dut.dmem[3]);
+                if (dut.dmem[3] !== 32'd1)
+                    $fatal(1, "expected one result commit in the final legacy run, result count signature=%0d", dut.dmem[3]);
                 if (cpu_bus_fault !== 1'b0)
                     $fatal(1, "unexpected sticky CPU/system bus fault");
                 if (accel_error !== 1'b0)

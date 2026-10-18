@@ -1,0 +1,204 @@
+# Verification Closure: Serialized Block Processing
+
+## Status and provenance
+
+This report records simulation evidence for the serialized multi-sample
+controller. It does not amend the normative contract or claim that every V1.0
+implementation-deviation row is closed.
+
+- Documentation branch: `docs/refresh-block-processing-status`
+- Documentation branch base: `5110ad17c255a1184cb792b6862180f18225912d`
+- Relevant implementation/test commits:
+  - `3e709d1` — serialized block-processing controller
+  - `baa433b` — physical result-commit guard alignment
+  - `ae15dd8` — block-closure scoreboards and experiment runner
+  - `5110ad1` — reset-edge physical-write observation correction
+- Normative behavior source: [`ACCELERATOR_CONTRACT_V1.md`](ACCELERATOR_CONTRACT_V1.md)
+
+The closure runner receipt was captured on `2026-10-18T21:09:30Z` with
+Icarus Verilog 13.0. The runner recorded branch
+`feature/verification-closure` and source revision
+`ae15dd8b589459b515d2b1646ad6e2e985b4dc90`. The reset-edge scoreboard
+correction was present in the worktree for that run and was committed
+immediately afterward as `5110ad1`; it changed verification observation only,
+not the DUT RTL. This distinction is retained so the receipt is not
+misattributed to a commit that did not exist when the script printed its
+revision.
+
+Generated binaries and logs remain under the ignored directory
+`results/verification-closure/`. They are evidence for the reported run, not
+repository deliverables.
+
+## What was measured
+
+`tests/rtl/tb_fir_seq_accel_block_1024.sv` runs an independent signed Q16.16
+reference model against the complete integrated block path. It does not use
+the controller's sample windows, nominal engine cycle field, `BUSY`, or
+`DONE` as its functional oracle. The scoreboard observes controller and bus
+events directly:
+
+- `SAMPLE_COUNT=1024` and `TAP_COUNT=3` were used for the full-block runs.
+- All 1024 result words were compared with the independent reference.
+- Input, output, and physical result-memory commit events were counted
+  independently.
+- The final physical commit address was checked as `0x0002_2ffc`.
+- A successful result was checked with `BUSY=0`, `DONE=1`, `ERROR=0`, and
+  `RESULT_COUNT=SAMPLE_COUNT`.
+- The same bench injected a tap-BRAM range fault after eight commits and
+  checked partial-result invalidation and RESET recovery.
+
+Every event in the block scoreboard is sampled at the active rising edge
+before nonblocking assignments (NBA). A `#1` delay is used only for
+post-edge memory and CSR assertions. The event definitions are the contract's
+§8 definitions:
+
+| Event | Observation |
+|---|---|
+| `e_start` | Valid START accepted and ownership reserved. |
+| `e_sample[n]` | Synchronous sample response captured into the pending register. |
+| `e_in[n]` | `engine_in_valid && engine_in_ready` accepts window `n`. |
+| `e_out[n]` | `engine_out_valid && engine_out_ready` transfers output `n`. |
+| `e_commit[n]` | Output `n` is successfully written to result memory. |
+| `e_done` | Rising edge of the final successful result-memory commit. |
+| `e_error` | Rising edge on which an internal BRAM/engine fault terminates the run. |
+
+For a successful run, the scoreboard checks
+`CYCLES_TOTAL = e_done - e_start`. For an internal fault, it checks
+`CYCLES_TOTAL = e_error - e_start`. When an engine output transfer exists, it
+checks `COMPUTE_CYCLES = last e_out - first e_in`.
+
+## 1024-sample success matrix
+
+The matrix covers all four physical lane builds and all three selected
+architectures: `arch=0` sequential, `arch=1` parallel, and `arch=2`
+pipelined. Every row reported `inputs=1024`, `outputs=1024`,
+`commits=1024`, `e_start=3`, `e_in[0]=12`, `STATUS=0x00000002`, zero
+functional/counter/harness failures, and a complete reference match.
+
+| LANES | Architecture | `e_out[last]` | `e_done` / final commit | `CYCLES_TOTAL` | `COMPUTE_CYCLES` |
+|---:|---|---:|---:|---:|---:|
+| 4 | Sequential | 9224 | 9225 | 9222 | 9212 |
+| 4 | Parallel | 5128 | 5129 | 5126 | 5116 |
+| 4 | Pipelined | 8200 | 8201 | 8198 | 8188 |
+| 8 | Sequential | 9224 | 9225 | 9222 | 9212 |
+| 8 | Parallel | 5128 | 5129 | 5126 | 5116 |
+| 8 | Pipelined | 9224 | 9225 | 9222 | 9212 |
+| 16 | Sequential | 9224 | 9225 | 9222 | 9212 |
+| 16 | Parallel | 5128 | 5129 | 5126 | 5116 |
+| 16 | Pipelined | 10248 | 10249 | 10246 | 10236 |
+| 32 | Sequential | 9224 | 9225 | 9222 | 9212 |
+| 32 | Parallel | 5128 | 5129 | 5126 | 5116 |
+| 32 | Pipelined | 11272 | 11273 | 11270 | 11260 |
+
+## Partial-fault timing matrix
+
+Each fault run used `SAMPLE_COUNT=16`. The bench waited for eight successful
+physical commits, forced the tap-BRAM range-fault indication, and then checked
+the internal-fault termination. All rows retained exactly eight committed
+words, set `STATUS.ERROR` (`0x00000004`), left `DONE=0` and `BUSY=0`, set
+`DBG_STATUS.BRAM_FAULT`, preserved the earlier committed words, and left later
+result words at their pre-run contents. `CTRL.RESET` cleared the error and all
+partial counters after each run.
+
+The common event values were `e_start=3`, `e_in[0]=12`, and
+`RESULT_COUNT=8` at termination.
+
+| LANES | Architecture | `e_error` | `e_out[last]` | `CYCLES_TOTAL` | `COMPUTE_CYCLES` |
+|---:|---|---:|---:|---:|---:|
+| 4 | Sequential | 83 | 80 | 80 | 68 |
+| 4 | Parallel | 51 | 48 | 48 | 36 |
+| 4 | Pipelined | 75 | 72 | 72 | 60 |
+| 8 | Sequential | 83 | 80 | 80 | 68 |
+| 8 | Parallel | 51 | 48 | 48 | 36 |
+| 8 | Pipelined | 83 | 80 | 80 | 68 |
+| 16 | Sequential | 83 | 80 | 80 | 68 |
+| 16 | Parallel | 51 | 48 | 48 | 36 |
+| 16 | Pipelined | 91 | 88 | 88 | 76 |
+| 32 | Sequential | 83 | 80 | 80 | 68 |
+| 32 | Parallel | 51 | 48 | 48 | 36 |
+| 32 | Pipelined | 99 | 96 | 96 | 84 |
+
+The separate reset-race acceptance coverage exercised 75 cases per lane build.
+For both reset phases, it observed zero physical result writes and zero
+commits; all four lane builds completed with zero functional, counter, and
+harness failures. The testbench observation correction for the reset edge is
+the `5110ad1` commit listed above.
+
+## Direct pipelined-engine latency
+
+`tests/rtl/tb_fir_pipelined_latency.sv` measured the direct engine with
+`out_ready=1` and a 24-item no-stall stream, then exercised pipeline fill,
+drain, and output backpressure. It compared output data and errors against an
+independent reference, required no output gaps in the no-stall stream, and
+checked that output data, error, and the reported cycle field remained stable
+while the output was stalled.
+
+| LANES | Tree levels | Registered stages | Reported `cycles_o` | Post-NBA visible latency | Transfer-edge latency |
+|---:|---:|---:|---:|---:|---:|
+| 4 | 2 | 4 | 3 | 3 | 4 |
+| 8 | 3 | 5 | 4 | 4 | 5 |
+| 16 | 4 | 6 | 5 | 5 | 6 |
+| 32 | 5 | 7 | 6 | 6 | 7 |
+
+The transfer-edge value is measured from the accepted input rising edge to the
+corresponding output-transfer rising edge, with both `valid && ready` tests
+sampled before NBA. The post-NBA visible value matches the nominal
+`TREE_LEVELS+1` `cycles_o` field. The transfer-edge value is
+`TREE_LEVELS+2`; it must not be confused with nominal pipeline depth or with
+elapsed latency under output backpressure.
+
+## Commands and reported outcomes
+
+The following commands were run in the verification session and reported
+successfully:
+
+```bash
+python3 -m unittest discover -s tests -v
+bash scripts/run_rtl_smoke.sh
+bash scripts/run_soc_smoke.sh all
+bash scripts/run_verification_closure.sh
+```
+
+Observed outcomes:
+
+- Python reference suite: 14 tests passed.
+- RTL smoke: passed.
+- SoC smoke: passed across the supported `LANES=4, 8, 16, 32` sweep.
+- Verification closure: all four block scoreboards and all four direct
+  pipeline experiments passed; every summary reported zero functional,
+  counter/latency, and harness failures.
+- `git diff --check` and `bash -n scripts/run_verification_closure.sh` also
+  passed during the closure work.
+
+The closure script is the reproducible entry point for the detailed matrices:
+
+```bash
+bash scripts/run_verification_closure.sh
+```
+
+It records the branch, source revision, UTC timestamp, Icarus/VVP versions,
+compile commands, and machine-readable result lines before writing generated
+artifacts to `results/verification-closure/`.
+
+## Warnings and boundaries
+
+The Icarus `-Wall` compile output contains the known
+`constant selects in always_* processes are not fully supported` sensitivity
+warnings for combinational processes in `fir_seq_accel.sv` and
+`nexus32_accel_bus.sv`. They cause Icarus to broaden sensitivity, but did not
+produce a functional, counter, latency, or harness failure in this closure.
+
+This evidence does **not** claim:
+
+- Vivado synthesis or implementation success;
+- BRAM/DSP/LUT/FF resource usage, timing closure, Fmax, PPA, or power;
+- bitstream generation, board programming, or physical Basys 3 behavior;
+- standalone architecture throughput from the serialized selector/SoC path;
+- stalled, elapsed pipeline latency as equivalent to the no-stall transfer
+  latency above; or
+- completion of unrelated V1.0 contract deviation rows or milestone
+  checklist items.
+
+The contract, RTL, firmware, and test benches are unchanged by this
+documentation milestone. This report is a durable summary of the existing
+simulation receipts and should be rerun after any behavior-affecting change.

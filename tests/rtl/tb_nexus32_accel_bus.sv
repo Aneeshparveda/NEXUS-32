@@ -35,6 +35,7 @@ module tb_nexus32_accel_bus #(
     localparam logic [31:0] INPUT_PTR_ADDR = 32'h1000_5010;
     localparam logic [31:0] OUTPUT_PTR_ADDR = 32'h1000_5014;
     localparam logic [31:0] SAMPLE_COUNT_ADDR = 32'h1000_501c;
+    localparam logic [31:0] RESULT_COUNT_ADDR = 32'h1000_503c;
     localparam logic [31:0] DBG_STATUS_ADDR = 32'h1000_5030;
     localparam logic [31:0] DBG_ADDR_ADDR = 32'h1000_5034;
     localparam logic [31:0] DBG_INFO_ADDR = 32'h1000_5038;
@@ -181,6 +182,8 @@ module tb_nexus32_accel_bus #(
         if (err) $fatal(1, "INPUT_PTR CSR write failed");
         bus_xfer(1'b1, OUTPUT_PTR_ADDR, RESULT_BASE, 4'hf, rd, err);
         if (err) $fatal(1, "OUTPUT_PTR CSR write failed");
+        bus_xfer(1'b1, SAMPLE_COUNT_ADDR, 32'd1, 4'hf, rd, err);
+        if (err) $fatal(1, "SAMPLE_COUNT CSR write failed");
         bus_xfer(1'b1, CTRL_ADDR, 32'd1, 4'hf, rd, err);
         if (err) $fatal(1, "START CSR write failed");
 
@@ -191,7 +194,10 @@ module tb_nexus32_accel_bus #(
             $fatal(1, "result read mismatch: err=%b data=%08x expected=00020000", err, rd);
         bus_xfer(1'b0, SAMPLE_COUNT_ADDR, 32'd0, 4'hf, rd, err);
         if (err || rd !== 32'd1)
-            $fatal(1, "sample count mismatch: err=%b data=%0d", err, rd);
+            $fatal(1, "configured sample count mismatch: err=%b data=%0d", err, rd);
+        bus_xfer(1'b0, RESULT_COUNT_ADDR, 32'd0, 4'hf, rd, err);
+        if (err || rd !== 32'd1)
+            $fatal(1, "result count mismatch: err=%b data=%0d", err, rd);
         if (commit_count != 1)
             $fatal(1, "expected exactly one result commit, saw %0d", commit_count);
 
@@ -236,6 +242,8 @@ module tb_nexus32_accel_bus #(
         bus_xfer(1'b0, DBG_STATUS_ADDR, 32'd0, 4'hf, rd, err);
         if (err || !(rd & 32'h0000_0002))
             $fatal(1, "reserved CSR read did not set BUS_ACCESS: %08x", rd);
+        bus_xfer(1'b1, SAMPLE_COUNT_ADDR, 32'd1, 4'hf, rd, err);
+        if (err) $fatal(1, "SAMPLE_COUNT write failed before invalid-tap test");
 
         // Test invalid tap count rejection (> LANES) through the bus interface
         bus_xfer(1'b1, TAP_COUNT_ADDR, 32'(LANES + 1), 4'hf, rd, err);
@@ -251,6 +259,8 @@ module tb_nexus32_accel_bus #(
         if (err) $fatal(1, "soft reset write failed");
         if (accelerator_error)
             $fatal(1, "accelerator error bit not cleared by soft reset");
+        bus_xfer(1'b1, SAMPLE_COUNT_ADDR, 32'd1, 4'hf, rd, err);
+        if (err) $fatal(1, "SAMPLE_COUNT write failed before max-tap run");
 
         // Set a clearable event before the next run, then verify that a debug
         // W1C while busy is rejected without clearing it.
