@@ -68,19 +68,26 @@ module tb_fir_seq_accel_block_config;
     localparam logic [31:0] DBG_INVALID_CONFIG = 32'h0000_0020;
 
     integer failures = 0;
-    integer prefetch_read_count = 0;
+    integer legacy_tap_read_count = 0;
+    integer accelerator_sample_read_count = 0;
+    integer accelerator_coefficient_read_count = 0;
     logic ownership_seen = 1'b0;
     integer i;
     integer poll;
 
     always #5 clk = ~clk;
 
-    // The legacy controller's paired BRAM request is the old Port-B access.
-    // This monitor is intentionally hierarchical: invalid configuration must
-    // not even assert dut.prefetch_req for one clock.
+    // These are the actual accelerator request paths in the current hierarchy:
+    // the legacy paired request is driven by dut.prefetch_req, while the
+    // independent Port-B inputs are on dut.u_tap_bram. Invalid configuration
+    // must not assert any of them for one clock.
     always @(posedge clk) begin
         if (dut.prefetch_req === 1'b1)
-            prefetch_read_count <= prefetch_read_count + 1;
+            legacy_tap_read_count <= legacy_tap_read_count + 1;
+        if (dut.u_tap_bram.accelerator_sample_re_i === 1'b1)
+            accelerator_sample_read_count <= accelerator_sample_read_count + 1;
+        if (dut.u_tap_bram.accelerator_coefficient_re_i === 1'b1)
+            accelerator_coefficient_read_count <= accelerator_coefficient_read_count + 1;
         if (bank_owned === 1'b1)
             ownership_seen <= 1'b1;
     end
@@ -268,7 +275,15 @@ module tb_fir_seq_accel_block_config;
             repeat (3) @(negedge clk);
             rst = 1'b0;
             repeat (2) @(negedge clk);
-            prefetch_read_count = 0;
+            reset_read_monitors();
+        end
+    endtask
+
+    task automatic reset_read_monitors;
+        begin
+            legacy_tap_read_count = 0;
+            accelerator_sample_read_count = 0;
+            accelerator_coefficient_read_count = 0;
             ownership_seen = 1'b0;
         end
     endtask
@@ -282,8 +297,7 @@ module tb_fir_seq_accel_block_config;
             repeat (2) @(negedge clk);
             if (busy !== 1'b0)
                 report_failure($sformatf("CTRL.RESET released BUSY, case %s", case_name));
-            prefetch_read_count = 0;
-            ownership_seen = 1'b0;
+            reset_read_monitors();
         end
     endtask
 
@@ -343,13 +357,27 @@ module tb_fir_seq_accel_block_config;
         begin
             if (busy !== 1'b0 || bank_owned !== 1'b0)
                 report_failure($sformatf("invalid config acquired BUSY/bank ownership, case %s", case_name));
-            if (prefetch_read_count != 0)
-                report_failure($sformatf("invalid config issued dut.prefetch_req Port-B read, case %s", case_name));
+            if (legacy_tap_read_count != 0)
+                report_failure($sformatf("invalid config issued legacy paired tap request dut.prefetch_req (%0d), case %s",
+                                         legacy_tap_read_count, case_name));
+            if (accelerator_sample_read_count != 0)
+                report_failure($sformatf("invalid config issued independent sample read dut.u_tap_bram.accelerator_sample_re_i (%0d), case %s",
+                                         accelerator_sample_read_count, case_name));
+            if (accelerator_coefficient_read_count != 0)
+                report_failure($sformatf("invalid config issued independent coefficient read dut.u_tap_bram.accelerator_coefficient_re_i (%0d), case %s",
+                                         accelerator_coefficient_read_count, case_name));
             repeat (6) @(negedge clk);
             if (busy !== 1'b0 || bank_owned !== 1'b0 || ownership_seen === 1'b1)
                 report_failure($sformatf("invalid config acquired bank ownership after rejection, case %s", case_name));
-            if (prefetch_read_count != 0)
-                report_failure($sformatf("invalid config accessed Port-B after rejection, case %s", case_name));
+            if (legacy_tap_read_count != 0)
+                report_failure($sformatf("invalid config accessed legacy paired tap Port-B path after rejection (%0d), case %s",
+                                         legacy_tap_read_count, case_name));
+            if (accelerator_sample_read_count != 0)
+                report_failure($sformatf("invalid config accessed independent sample Port-B path after rejection (%0d), case %s",
+                                         accelerator_sample_read_count, case_name));
+            if (accelerator_coefficient_read_count != 0)
+                report_failure($sformatf("invalid config accessed independent coefficient Port-B path after rejection (%0d), case %s",
+                                         accelerator_coefficient_read_count, case_name));
         end
     endtask
 
@@ -366,8 +394,7 @@ module tb_fir_seq_accel_block_config;
             hardware_reset();
             program_config(case_name, tap_count, coefficient_ptr, sample_count,
                            input_ptr, output_ptr);
-            prefetch_read_count = 0;
-            ownership_seen = 1'b0;
+            reset_read_monitors();
 
             csr_write(REG_CTRL, 32'd1, transaction_error);
             if (transaction_error)
@@ -406,8 +433,7 @@ module tb_fir_seq_accel_block_config;
             hardware_reset();
             program_config(case_name, tap_count, coefficient_ptr, sample_count,
                            input_ptr, output_ptr);
-            prefetch_read_count = 0;
-            ownership_seen = 1'b0;
+            reset_read_monitors();
 
             csr_write(REG_CTRL, 32'd1, transaction_error);
             if (transaction_error)
@@ -417,8 +443,8 @@ module tb_fir_seq_accel_block_config;
             expect_read_value(REG_RESULT_COUNT, 32'd0,
                               $sformatf("valid START clears RESULT_COUNT for configured M, case %s", case_name));
             repeat (4) @(negedge clk);
-            if (prefetch_read_count == 0)
-                report_failure($sformatf("valid START did not issue a Port-B prefetch, case %s", case_name));
+            if (legacy_tap_read_count == 0)
+                report_failure($sformatf("valid START did not issue legacy paired tap request dut.prefetch_req, case %s", case_name));
             soft_reset(case_name);
         end
     endtask
@@ -441,8 +467,7 @@ module tb_fir_seq_accel_block_config;
                                $sformatf("INPUT_PTR setup for valid START, case %s", case_name));
             expect_write_error(REG_OUTPUT_PTR, RESULT_BASE, 1'b0,
                                $sformatf("OUTPUT_PTR setup for valid START, case %s", case_name));
-            prefetch_read_count = 0;
-            ownership_seen = 1'b0;
+            reset_read_monitors();
             csr_write(REG_CTRL, 32'd1, transaction_error);
             if (transaction_error)
                 report_failure($sformatf("valid START accepted configured M, case %s", case_name));
@@ -524,8 +549,7 @@ module tb_fir_seq_accel_block_config;
             hardware_reset();
             program_config("BUSY configuration rejection", 32'd32, COEFF_BASE, 32'd1024,
                            SAMPLE_BASE, RESULT_BASE);
-            prefetch_read_count = 0;
-            ownership_seen = 1'b0;
+            reset_read_monitors();
             csr_write(REG_CTRL, 32'd1, transaction_error);
             if (transaction_error)
                 report_failure("START before BUSY configuration tests returned rsp_error=1");
