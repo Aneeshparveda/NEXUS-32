@@ -193,7 +193,10 @@ module tb_fir_accel_architectures #(
         end
 
         expected_1tap = compute_expected_fir(6'd1);
-        expected_lanes_tap = compute_expected_fir(6'(LANES));
+        // SAMPLE_COUNT=1 starts with zero history. A multi-tap first window
+        // therefore exercises tap count/snapshot selection but only tap 0 has
+        // a nonzero sample; rolling-history coverage is in the block bench.
+        expected_lanes_tap = compute_expected_fir(6'd1);
 
         // Base pointer setup
         csr_write(12'h00c, 32'h0002_0000, transaction_error); // COEFF_PTR

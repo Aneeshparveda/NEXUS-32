@@ -80,7 +80,8 @@ module tb_fir_seq_accel_block_config;
     // These are the actual accelerator request paths in the current hierarchy:
     // the legacy paired request is driven by dut.prefetch_req, while the
     // independent Port-B inputs are on dut.u_tap_bram. Invalid configuration
-    // must not assert any of them for one clock.
+    // must not assert any of them for one clock. Valid block starts use the
+    // independent Port-B paths.
     always @(posedge clk) begin
         if (dut.prefetch_req === 1'b1)
             legacy_tap_read_count <= legacy_tap_read_count + 1;
@@ -442,9 +443,15 @@ module tb_fir_seq_accel_block_config;
                 report_failure($sformatf("valid START did not acquire BUSY/bank ownership, case %s", case_name));
             expect_read_value(REG_RESULT_COUNT, 32'd0,
                               $sformatf("valid START clears RESULT_COUNT for configured M, case %s", case_name));
-            repeat (4) @(negedge clk);
-            if (legacy_tap_read_count == 0)
-                report_failure($sformatf("valid START did not issue legacy paired tap request dut.prefetch_req, case %s", case_name));
+            // Coefficients are now read through the independent Port-B path,
+            // one synchronous word at a time, before the first sample read.
+            repeat (80) @(negedge clk);
+            if (legacy_tap_read_count != 0)
+                report_failure($sformatf("valid START unexpectedly issued legacy paired tap request dut.prefetch_req, case %s", case_name));
+            if (accelerator_sample_read_count == 0)
+                report_failure($sformatf("valid START did not issue independent sample Port-B request, case %s", case_name));
+            if (accelerator_coefficient_read_count == 0)
+                report_failure($sformatf("valid START did not issue independent coefficient Port-B request, case %s", case_name));
             soft_reset(case_name);
         end
     endtask

@@ -3,7 +3,7 @@
 // req_addr_i is a byte offset within the accelerator MMIO window; the SoC bus
 // adapter translates 0x10005000 + offset to this port. Responses are registered
 // one-cycle pulses; req_ready_o deasserts while a response pulse is active.
-// The wrapper accepts one job at a time and prefetches the full tap window.
+// The wrapper accepts one job at a time and serializes one block window at a time.
 //
 // Address map used by this module:
 //   0x00 CTRL       bit 0 START, bit 1 RESET (wins over START), bits 3:2 ARCH_SEL
@@ -14,9 +14,9 @@
 //   0x0c COEFF_PTR  byte pointer in [0x20000,0x21000)
 //   0x10 INPUT_PTR  byte pointer in [0x21000,0x22000)
 //   0x14 OUTPUT_PTR byte pointer in [0x22000,0x23000)
-//   0x18 CYCLES_TOTAL accepted START through selected-engine completion
+//   0x18 CYCLES_TOTAL accepted START through final physical result commit
 //   0x1c SAMPLE_COUNT configured block length (validated at START)
-//   0x20 COMPUTE_CYCLES first tap transfer through selected-result transfer
+//   0x20 COMPUTE_CYCLES first engine input transfer through last output transfer
 //   0x3c RESULT_COUNT successful result commits in the current run
 //
 // The host RAM write ports use local WORD offsets (0..1023), not system
@@ -24,8 +24,9 @@
 // A denied write sets a sticky ownership debug event without corrupting BRAM
 // or invalidating the active result. Hardware RESET or CTRL.RESET clears safety
 // and BRAM sticky faults.
-// All architectures share this prefetch and result-commit path. This remains a
-// single-buffer design, not the planned full SoC bus/DMA/STREAM-DB subsystem.
+// All architectures share this serialized block/history and result-commit path.
+// This remains a single-buffer design, not the planned full SoC bus/DMA/STREAM-DB
+// subsystem.
 module fir_seq_accel #(
     parameter int LANES = 32
 ) (
@@ -190,9 +191,9 @@ module fir_seq_accel #(
     logic [31:0] output_ptr_q;
     logic [31:0] sample_count_cfg_q;
 
-    // Configuration captured on the accepting START edge. The current shell
-    // still executes one legacy tap window, but all Port-B inputs and the
-    // result address use these active snapshots rather than mutable CSR state.
+    // Configuration captured on the accepting START edge. All Port-B inputs,
+    // history formation, and result addresses use these active snapshots rather
+    // than mutable CSR state.
     logic [5:0] tap_count_active_q;
     logic [31:0] sample_count_active_q;
     logic [31:0] coefficient_ptr_active_q;
@@ -214,6 +215,12 @@ module fir_seq_accel #(
     logic [31:0] debug_info_q;
     logic internal_fault_q;
     logic bram_fault_seen_q;
+
+    logic signed [31:0] pending_sample_q;
+    logic pending_valid_q;
+    logic signed [31:0] history_q [0:LANES-2];
+    logic [5:0] coefficient_index_q;
+    logic [10:0] sample_index_q;
 
     logic [33:0] tap_span_bytes_ext;
     logic [33:0] sample_span_bytes_ext;
@@ -248,27 +255,36 @@ module fir_seq_accel #(
      integer debug_index;
      logic req_accept_now;
 
-    logic [9:0] active_sample_base_word;
+     logic [9:0] active_sample_base_word;
     logic [9:0] active_coefficient_base_word;
     logic bram_cfg_valid;
-    logic tap_valid;
-    logic signed [31:0] sample_tap;
-    logic signed [31:0] coefficient_tap;
     logic bram_range_fault;
     logic sample_we_to_bram;
     logic coefficient_we_to_bram;
+    logic accelerator_sample_re;
+    logic [9:0] accelerator_sample_raddr;
+    logic accelerator_sample_rvalid;
+    logic signed [31:0] accelerator_sample_rdata;
+    logic accelerator_coefficient_re;
+    logic [9:0] accelerator_coefficient_raddr;
+    logic accelerator_coefficient_rvalid;
+    logic signed [31:0] accelerator_coefficient_rdata;
+    logic physical_result_commit_now;
+    integer history_index;
 
-    typedef enum logic [2:0] {
-        EXEC_IDLE,
-        EXEC_PREFETCH_REQUEST,
-        EXEC_PREFETCH_WAIT,
-        EXEC_SELECTOR_SUBMIT,
-        EXEC_SELECTOR_WAIT
-    } exec_state_t;
+     typedef enum logic [3:0] {
+         EXEC_IDLE,
+         EXEC_COEFF_REQUEST,
+         EXEC_COEFF_WAIT,
+         EXEC_SAMPLE_REQUEST,
+         EXEC_SAMPLE_WAIT,
+         EXEC_SELECTOR_SUBMIT,
+         EXEC_SELECTOR_WAIT,
+         EXEC_COMMIT_WAIT
+     } exec_state_t;
 
-    exec_state_t exec_state_q;
-    logic [4:0] prefetch_index_q;
-    logic [1:0] run_arch_q;
+     exec_state_t exec_state_q;
+     logic [1:0] run_arch_q;
     logic [LANES*32-1:0] sample_vector_q;
     logic [LANES*32-1:0] coefficient_vector_q;
     logic [31:0] elapsed_cycles_work_q;
@@ -277,8 +293,8 @@ module fir_seq_accel #(
     logic soft_reset_request_now;
     logic engine_reset;
 
-    logic prefetch_req;
-    logic [4:0] prefetch_addr;
+     logic prefetch_req;
+     logic [4:0] prefetch_addr;
     logic selector_in_valid;
     logic selector_in_ready;
     logic selector_out_valid;
@@ -330,6 +346,12 @@ module fir_seq_accel #(
 
     assign active_sample_base_word = local_word_index(input_ptr_active_q, INPUT_BASE);
     assign active_coefficient_base_word = local_word_index(coefficient_ptr_active_q, COEFF_BASE);
+
+    assign accelerator_sample_re = (exec_state_q == EXEC_SAMPLE_REQUEST) && busy_q;
+    assign accelerator_sample_raddr = active_sample_base_word + sample_index_q[9:0];
+    assign accelerator_coefficient_re = (exec_state_q == EXEC_COEFF_REQUEST) && busy_q;
+    assign accelerator_coefficient_raddr = active_coefficient_base_word + {4'd0, coefficient_index_q};
+    assign physical_result_commit_now = result_commit_q && !soft_reset_request_now && !rst_i;
 
     assign req_accept_now = req_valid_i && req_ready_o;
 
@@ -558,27 +580,27 @@ module fir_seq_accel #(
         end
     end
 
-    fir_tap_bram u_tap_bram (
-        .clk_i(clk_i),
-        .rst_i(engine_reset),
-        .sample_base_word_i(active_sample_base_word),
-        .coefficient_base_word_i(active_coefficient_base_word),
-        .tap_count_i(tap_count_active_q[5:0]),
-        .cfg_valid_o(bram_cfg_valid),
-        .tap_req_i(prefetch_req),
-        .tap_index_i(prefetch_addr),
-        .tap_valid_o(tap_valid),
-        .sample_tap_o(sample_tap),
-        .coefficient_tap_o(coefficient_tap),
-        .range_fault_o(bram_range_fault),
-        .accelerator_sample_re_i(1'b0),
-        .accelerator_sample_raddr_i(10'd0),
-        .accelerator_sample_rvalid_o(),
-        .accelerator_sample_rdata_o(),
-        .accelerator_coefficient_re_i(1'b0),
-        .accelerator_coefficient_raddr_i(10'd0),
-        .accelerator_coefficient_rvalid_o(),
-        .accelerator_coefficient_rdata_o(),
+     fir_tap_bram u_tap_bram (
+         .clk_i(clk_i),
+         .rst_i(engine_reset),
+         .sample_base_word_i(active_sample_base_word),
+         .coefficient_base_word_i(active_coefficient_base_word),
+         .tap_count_i(tap_count_active_q[5:0]),
+         .cfg_valid_o(bram_cfg_valid),
+         .tap_req_i(prefetch_req),
+         .tap_index_i(prefetch_addr),
+         .tap_valid_o(),
+         .sample_tap_o(),
+         .coefficient_tap_o(),
+         .range_fault_o(bram_range_fault),
+         .accelerator_sample_re_i(accelerator_sample_re),
+         .accelerator_sample_raddr_i(accelerator_sample_raddr),
+         .accelerator_sample_rvalid_o(accelerator_sample_rvalid),
+         .accelerator_sample_rdata_o(accelerator_sample_rdata),
+         .accelerator_coefficient_re_i(accelerator_coefficient_re),
+         .accelerator_coefficient_raddr_i(accelerator_coefficient_raddr),
+         .accelerator_coefficient_rvalid_o(accelerator_coefficient_rvalid),
+         .accelerator_coefficient_rdata_o(accelerator_coefficient_rdata),
         .host_sample_re_i(host_sample_re_i),
         .host_sample_raddr_i(host_sample_raddr_i),
         .host_sample_rvalid_o(host_sample_rvalid_o),
@@ -595,12 +617,13 @@ module fir_seq_accel #(
         .coefficient_wdata_i(host_coefficient_wdata_i)
     );
 
-    // Synchronous BRAM is gathered into a complete, stable tap vector before
-    // the selected engine accepts the operation. This adapter latency is
-    // included in CYCLES_TOTAL; COMPUTE_CYCLES spans first tap data to result.
-    assign prefetch_req = (exec_state_q == EXEC_PREFETCH_REQUEST) && busy_q;
-    assign prefetch_addr = prefetch_index_q;
-    assign selector_in_valid = (exec_state_q == EXEC_SELECTOR_SUBMIT) && busy_q;
+    // Coefficients and one current sample are read through independent BRAM
+    // ports. The sample window is completed from the pending sample plus the
+    // accepted-input history before the selector sees it.
+    assign prefetch_req = 1'b0;
+    assign prefetch_addr = 5'd0;
+    assign selector_in_valid = (exec_state_q == EXEC_SELECTOR_SUBMIT) &&
+                               busy_q && pending_valid_q;
     assign selector_out_ready = 1'b1; // result is committed immediately when valid
 
     fir_arch_selector #(
@@ -641,10 +664,15 @@ module fir_seq_accel #(
             done_sticky_q <= 1'b0;
             error_sticky_q <= 1'b0;
             exec_state_q <= EXEC_IDLE;
-            prefetch_index_q <= 5'd0;
             run_arch_q <= 2'd0;
             sample_vector_q <= '0;
             coefficient_vector_q <= '0;
+            pending_sample_q <= 32'sd0;
+            pending_valid_q <= 1'b0;
+            coefficient_index_q <= 6'd0;
+            sample_index_q <= 11'd0;
+            for (history_index = 0; history_index < LANES-1; history_index = history_index + 1)
+                history_q[history_index] <= 32'sd0;
             mem_write_rejected_q <= 1'b0;
             result_commit_q <= 1'b0;
             result_commit_addr_q <= OUTPUT_BASE;
@@ -697,12 +725,14 @@ module fir_seq_accel #(
             if (busy_q)
                 elapsed_cycles_work_q <= elapsed_cycles_work_q + 32'd1;
 
-            if (busy_q && (exec_state_q == EXEC_PREFETCH_WAIT) && tap_valid)
+            if (busy_q && selector_in_valid && selector_in_ready)
                 first_input_seen_q <= 1'b1;
             if (busy_q && first_input_seen_q)
                 compute_elapsed_work_q <= compute_elapsed_work_q + 32'd1;
+            if (busy_q && selector_out_valid && selector_out_ready && first_input_seen_q)
+                compute_cycles_q <= compute_elapsed_work_q + 32'd1;
 
-            // Architecture-independent prefetch and dispatch state machine.
+            // Architecture-independent serialized block controller.
             // An internal BRAM/engine fault terminates an active run on the
             // first observed fault edge; host/debug errors never take this
             // path and therefore cannot invalidate an otherwise valid run.
@@ -711,58 +741,106 @@ module fir_seq_accel #(
                 busy_q <= 1'b0;
                 done_sticky_q <= 1'b0;
                 cycles_total_q <= elapsed_cycles_work_q + 32'd1;
-                compute_cycles_q <= first_input_seen_q ?
-                                    (compute_elapsed_work_q + 32'd1) : 32'd0;
+                pending_valid_q <= 1'b0;
+                pending_sample_q <= 32'sd0;
+                sample_vector_q <= '0;
             end else begin
                 case (exec_state_q)
                     EXEC_IDLE: begin
-                        // A START accepted below transitions to PREFETCH_REQUEST.
+                        // A START accepted below transitions to COEFF_REQUEST.
                     end
 
-                    EXEC_PREFETCH_REQUEST: begin
-                        // BRAM samples prefetch_req at this edge; wait for its
-                        // registered tap_valid/data response on the next cycle.
-                        exec_state_q <= EXEC_PREFETCH_WAIT;
+                    EXEC_COEFF_REQUEST: begin
+                        // fir_tap_bram samples the independent coefficient read
+                        // request at this edge; consume its registered response
+                        // in the following state.
+                        exec_state_q <= EXEC_COEFF_WAIT;
                     end
 
-                    EXEC_PREFETCH_WAIT: begin
-                        if (tap_valid) begin
-                            sample_vector_q[prefetch_index_q*32 +: 32] <= sample_tap;
-                            coefficient_vector_q[prefetch_index_q*32 +: 32] <= coefficient_tap;
-                            if (({1'b0, prefetch_index_q} + 6'd1) >= tap_count_active_q[5:0]) begin
-                                exec_state_q <= EXEC_SELECTOR_SUBMIT;
+                    EXEC_COEFF_WAIT: begin
+                        if (accelerator_coefficient_rvalid) begin
+                            coefficient_vector_q[coefficient_index_q*32 +: 32] <=
+                                accelerator_coefficient_rdata;
+                            if ((coefficient_index_q + 6'd1) >= tap_count_active_q) begin
+                                exec_state_q <= EXEC_SAMPLE_REQUEST;
                             end else begin
-                                prefetch_index_q <= prefetch_index_q + 5'd1;
-                                exec_state_q <= EXEC_PREFETCH_REQUEST;
+                                coefficient_index_q <= coefficient_index_q + 6'd1;
+                                exec_state_q <= EXEC_COEFF_REQUEST;
                             end
                         end
                     end
 
+                    EXEC_SAMPLE_REQUEST: begin
+                        // Read exactly one new sample for the next output. Older
+                        // samples come from history, never from future BRAM words.
+                        exec_state_q <= EXEC_SAMPLE_WAIT;
+                    end
+
+                    EXEC_SAMPLE_WAIT: begin
+                        if (accelerator_sample_rvalid) begin
+                            pending_sample_q <= accelerator_sample_rdata;
+                            pending_valid_q <= 1'b1;
+                            sample_vector_q[0 +: 32] <= accelerator_sample_rdata;
+                            for (history_index = 0; history_index < LANES-1; history_index = history_index + 1) begin
+                                if ((tap_count_active_q > 6'd1) &&
+                                    (history_index < (32'(tap_count_active_q) - 32'd1)))
+                                    sample_vector_q[(history_index+1)*32 +: 32] <=
+                                        history_q[history_index];
+                                else
+                                    sample_vector_q[(history_index+1)*32 +: 32] <= 32'sd0;
+                            end
+                            exec_state_q <= EXEC_SELECTOR_SUBMIT;
+                        end
+                    end
+
                     EXEC_SELECTOR_SUBMIT: begin
-                        if (selector_in_valid && selector_in_ready)
+                        if (selector_in_valid && selector_in_ready) begin
+                            pending_valid_q <= 1'b0;
+                            if (tap_count_active_q > 6'd1) begin
+                                for (history_index = LANES-2; history_index > 0; history_index = history_index - 1)
+                                    history_q[history_index] <= history_q[history_index-1];
+                                history_q[0] <= pending_sample_q;
+                            end
                             exec_state_q <= EXEC_SELECTOR_WAIT;
+                        end
                     end
 
                     EXEC_SELECTOR_WAIT: begin
-                        if (selector_out_valid) begin
-                            exec_state_q <= EXEC_IDLE;
-                            busy_q <= 1'b0;
-                            cycles_total_q <= elapsed_cycles_work_q + 32'd1;
-                            compute_cycles_q <= first_input_seen_q ?
-                                                (compute_elapsed_work_q + 32'd1) : 32'd0;
-                            if (!bram_range_fault && bram_cfg_valid && !selector_out_error &&
-                                (sample_count_active_q >= 32'd1) &&
-                                (sample_count_active_q <= 32'd1024) &&
+                        if (selector_out_valid && selector_out_ready) begin
+                            if (!bram_range_fault && !selector_out_error &&
                                 (selector_active_arch == run_arch_q) && (selector_cycles != 16'd0)) begin
-                                done_sticky_q <= 1'b1;
                                 result_commit_q <= 1'b1;
-                                result_commit_addr_q <= output_ptr_active_q;
+                                result_commit_addr_q <= output_ptr_active_q +
+                                                        ({21'd0, sample_index_q} << 2);
                                 result_commit_data_q <= selector_result;
-                                result_count_q <= result_count_q + 32'd1;
+                                exec_state_q <= EXEC_COMMIT_WAIT;
                             end else begin
+                                exec_state_q <= EXEC_IDLE;
+                                busy_q <= 1'b0;
                                 done_sticky_q <= 1'b0;
                                 error_sticky_q <= 1'b1;
                                 internal_fault_q <= 1'b1;
+                                pending_valid_q <= 1'b0;
+                            end
+                        end
+                    end
+
+                    EXEC_COMMIT_WAIT: begin
+                        // result_commit_q is the registered request presented
+                        // to nexus32_accel_bus. Its high level on this edge is
+                        // the physical result-memory commit event. RESET wins
+                        // through the enclosing synchronous reset branch and the
+                        // bus-side result_mem_we gate.
+                        if (physical_result_commit_now) begin
+                            result_count_q <= result_count_q + 32'd1;
+                            if (({21'd0, sample_index_q} + 32'd1) >= sample_count_active_q) begin
+                                exec_state_q <= EXEC_IDLE;
+                                busy_q <= 1'b0;
+                                done_sticky_q <= 1'b1;
+                                cycles_total_q <= elapsed_cycles_work_q + 32'd1;
+                            end else begin
+                                sample_index_q <= sample_index_q + 11'd1;
+                                exec_state_q <= EXEC_SAMPLE_REQUEST;
                             end
                         end
                     end
@@ -771,6 +849,7 @@ module fir_seq_accel #(
                         exec_state_q <= EXEC_IDLE;
                         busy_q <= 1'b0;
                         error_sticky_q <= 1'b1;
+                        pending_valid_q <= 1'b0;
                     end
                 endcase
             end
@@ -798,8 +877,9 @@ module fir_seq_accel #(
                             REG_CTRL: begin
                                 if (req_wdata_i[0] && !error_sticky_q && !invalid_config_event_now) begin
                                     busy_q <= 1'b1;
-                                    exec_state_q <= EXEC_PREFETCH_REQUEST;
-                                    prefetch_index_q <= 5'd0;
+                                    exec_state_q <= EXEC_COEFF_REQUEST;
+                                    coefficient_index_q <= 6'd0;
+                                    sample_index_q <= 11'd0;
                                     run_arch_q <= req_wdata_i[3:2];
                                     tap_count_active_q <= tap_count_reg_q[5:0];
                                     sample_count_active_q <= sample_count_cfg_q;
@@ -808,6 +888,10 @@ module fir_seq_accel #(
                                     output_ptr_active_q <= output_ptr_q;
                                     sample_vector_q <= '0;
                                     coefficient_vector_q <= '0;
+                                    pending_sample_q <= 32'sd0;
+                                    pending_valid_q <= 1'b0;
+                                    for (history_index = 0; history_index < LANES-1; history_index = history_index + 1)
+                                        history_q[history_index] <= 32'sd0;
                                     done_sticky_q <= 1'b0;
                                     result_count_q <= 32'd0;
                                     cycles_total_q <= 32'd0;
