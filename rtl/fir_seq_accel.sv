@@ -15,8 +15,9 @@
 //   0x10 INPUT_PTR  byte pointer in [0x21000,0x22000)
 //   0x14 OUTPUT_PTR byte pointer in [0x22000,0x23000)
 //   0x18 CYCLES_TOTAL accepted START through selected-engine completion
-//   0x1c SAMPLE_COUNT number of successful result commits
+//   0x1c SAMPLE_COUNT configured block length (validated at START)
 //   0x20 COMPUTE_CYCLES first tap transfer through selected-result transfer
+//   0x3c RESULT_COUNT successful result commits in the current run
 //
 // The host RAM write ports use local WORD offsets (0..1023), not system
 // addresses. Writes are denied for the entire run, including the START edge.
@@ -117,18 +118,27 @@ module fir_seq_accel #(
      localparam logic [1:0] DBG_MASTER_CPU = 2'd0;
      localparam logic [1:0] DBG_MASTER_INTERNAL = 2'd1;
 
-      function automatic logic [31:0] make_debug_info(
-          input logic [2:0] event_code,
-          input logic [1:0] direction,
-          input logic [1:0] master
+       function automatic logic [31:0] make_debug_info(
+           input logic [2:0] event_code,
+           input logic [1:0] direction,
+           input logic [1:0] master
      );
          begin
              make_debug_info = 32'd0;
              make_debug_info[2:0] = event_code;
              make_debug_info[4:3] = direction;
              make_debug_info[6:5] = master;
-          end
-      endfunction
+           end
+       endfunction
+
+       function automatic logic [9:0] local_word_index(
+           input logic [31:0] pointer,
+           input logic [31:0] base
+       );
+           begin
+               local_word_index = 10'((pointer - base) >> 2);
+           end
+       endfunction
 
       // Select one metadata candidate for a single event class. Address is
       // the primary key; at an equal address writes beat reads, then the
@@ -178,26 +188,38 @@ module fir_seq_accel #(
     logic [31:0] coefficient_ptr_q;
     logic [31:0] input_ptr_q;
     logic [31:0] output_ptr_q;
+    logic [31:0] sample_count_cfg_q;
 
-     logic busy_q;
-     logic done_sticky_q;
-     logic error_sticky_q;
-     logic mem_write_rejected_q;
+    // Configuration captured on the accepting START edge. The current shell
+    // still executes one legacy tap window, but all Port-B inputs and the
+    // result address use these active snapshots rather than mutable CSR state.
+    logic [5:0] tap_count_active_q;
+    logic [31:0] sample_count_active_q;
+    logic [31:0] coefficient_ptr_active_q;
+    logic [31:0] input_ptr_active_q;
+    logic [31:0] output_ptr_active_q;
+
+    logic busy_q;
+    logic done_sticky_q;
+    logic error_sticky_q;
+    logic mem_write_rejected_q;
     logic result_commit_q;
     logic [31:0] result_commit_addr_q;
     logic signed [31:0] result_commit_data_q;
-     logic [31:0] cycles_total_q;
-      logic [31:0] sample_count_q;
-     logic [31:0] compute_cycles_q;
-     logic [7:0] debug_status_q;
-     logic [31:0] debug_addr_q;
-     logic [31:0] debug_info_q;
-     logic internal_fault_q;
-     logic bram_fault_seen_q;
+    logic [31:0] cycles_total_q;
+    logic [31:0] result_count_q;
+    logic [31:0] compute_cycles_q;
+    logic [7:0] debug_status_q;
+    logic [31:0] debug_addr_q;
+    logic [31:0] debug_info_q;
+    logic internal_fault_q;
+    logic bram_fault_seen_q;
 
-    logic [32:0] span_bytes_ext;
-    logic [32:0] input_end_ext;
-    logic [32:0] coefficient_end_ext;
+    logic [33:0] tap_span_bytes_ext;
+    logic [33:0] sample_span_bytes_ext;
+    logic [35:0] input_end_ext;
+    logic [35:0] coefficient_end_ext;
+    logic [35:0] output_end_ext;
     logic config_valid;
     logic start_request_now;
     logic reserve_banks_now;
@@ -226,10 +248,8 @@ module fir_seq_accel #(
      integer debug_index;
      logic req_accept_now;
 
-    logic [31:0] sample_offset_bytes;
-    logic [31:0] coefficient_offset_bytes;
-    logic [9:0] sample_base_word;
-    logic [9:0] coefficient_base_word;
+    logic [9:0] active_sample_base_word;
+    logic [9:0] active_coefficient_base_word;
     logic bram_cfg_valid;
     logic tap_valid;
     logic signed [31:0] sample_tap;
@@ -281,31 +301,35 @@ module fir_seq_accel #(
     assign result_commit_addr_o = result_commit_addr_q;
     assign result_commit_data_o = result_commit_data_q;
 
-    // Use only the low six bits to compute a candidate span, while separately
-    // requiring the whole TAP_COUNT register to be in range.
+    // Compute all configured spans in widened representations. The full
+    // register values are retained until START validation so semantic errors
+    // are reported at the command, not at the configuration write.
     always_comb begin
-        span_bytes_ext = {27'd0, tap_count_reg_q[5:0]} << 2;
-        input_end_ext = {1'b0, input_ptr_q} + span_bytes_ext;
-        coefficient_end_ext = {1'b0, coefficient_ptr_q} + span_bytes_ext;
+        tap_span_bytes_ext = {2'd0, tap_count_reg_q} << 2;
+        sample_span_bytes_ext = {2'd0, sample_count_cfg_q} << 2;
+        input_end_ext = {4'd0, input_ptr_q} + {2'd0, sample_span_bytes_ext};
+        coefficient_end_ext = {4'd0, coefficient_ptr_q} + {2'd0, tap_span_bytes_ext};
+        output_end_ext = {4'd0, output_ptr_q} + {2'd0, sample_span_bytes_ext};
         config_valid = (tap_count_reg_q >= 32'd1) &&
                        (tap_count_reg_q <= 32'(LANES)) &&
+                       (sample_count_cfg_q >= 32'd1) &&
+                       (sample_count_cfg_q <= 32'd1024) &&
                        (input_ptr_q[1:0] == 2'b00) &&
                        (coefficient_ptr_q[1:0] == 2'b00) &&
                        (output_ptr_q[1:0] == 2'b00) &&
                        (input_ptr_q >= INPUT_BASE) &&
                        (input_ptr_q < INPUT_LIMIT) &&
-                       (input_end_ext <= {1'b0, INPUT_LIMIT}) &&
+                       (input_end_ext <= {4'd0, INPUT_LIMIT}) &&
                        (coefficient_ptr_q >= COEFF_BASE) &&
                        (coefficient_ptr_q < COEFF_LIMIT) &&
-                       (coefficient_end_ext <= {1'b0, COEFF_LIMIT}) &&
+                       (coefficient_end_ext <= {4'd0, COEFF_LIMIT}) &&
                        (output_ptr_q >= OUTPUT_BASE) &&
-                       (output_ptr_q < OUTPUT_LIMIT) && bram_cfg_valid;
+                       (output_ptr_q < OUTPUT_LIMIT) &&
+                       (output_end_ext <= {4'd0, OUTPUT_LIMIT});
     end
 
-    assign sample_offset_bytes = input_ptr_q - INPUT_BASE;
-    assign coefficient_offset_bytes = coefficient_ptr_q - COEFF_BASE;
-    assign sample_base_word = sample_offset_bytes[11:2];
-    assign coefficient_base_word = coefficient_offset_bytes[11:2];
+    assign active_sample_base_word = local_word_index(input_ptr_active_q, INPUT_BASE);
+    assign active_coefficient_base_word = local_word_index(coefficient_ptr_active_q, COEFF_BASE);
 
     assign req_accept_now = req_valid_i && req_ready_o;
 
@@ -377,7 +401,8 @@ module fir_seq_accel #(
                 end else begin
                     case (req_addr_i)
                         REG_CTRL, REG_STATUS, REG_TAP_COUNT, REG_COEFF_PTR,
-                        REG_INPUT_PTR, REG_OUTPUT_PTR, REG_DBG_STATUS: begin end
+                        REG_INPUT_PTR, REG_OUTPUT_PTR, REG_SAMPLE_COUNT,
+                        REG_DBG_STATUS: begin end
                         default: csr_bus_access_event_now = 1'b1;
                     endcase
                 end
@@ -398,9 +423,12 @@ module fir_seq_accel #(
     assign busy_config_write_now = req_accept_now && req_write_i && busy_q &&
                                    (req_wstrb_i == 4'hf) && !csr_bus_access_event_now &&
                                    !busy_start_noop_now && !soft_reset_request_now &&
-                                   ((req_addr_i == REG_CTRL) || (req_addr_i == REG_TAP_COUNT) ||
-                                    (req_addr_i == REG_COEFF_PTR) || (req_addr_i == REG_INPUT_PTR) ||
-                                    (req_addr_i == REG_OUTPUT_PTR));
+                                   ((req_addr_i == REG_CTRL) ||
+                                    (req_addr_i == REG_TAP_COUNT) ||
+                                    (req_addr_i == REG_COEFF_PTR) ||
+                                    (req_addr_i == REG_INPUT_PTR) ||
+                                    (req_addr_i == REG_OUTPUT_PTR) ||
+                                    (req_addr_i == REG_SAMPLE_COUNT));
 
     always_comb begin
         host_mem_ownership_event_now = 1'b0;
@@ -488,14 +516,14 @@ module fir_seq_accel #(
 
         if (bram_fault_event_now) begin
             debug_event_valid[DBG_BRAM_FAULT] = 1'b1;
-            debug_event_addr_candidate[DBG_BRAM_FAULT] = input_ptr_q;
+            debug_event_addr_candidate[DBG_BRAM_FAULT] = input_ptr_active_q;
             debug_event_info_candidate[DBG_BRAM_FAULT] = make_debug_info(
                 3'd6, DBG_DIR_INTERNAL, DBG_MASTER_INTERNAL);
         end
 
         if (selector_out_valid && selector_out_error) begin
             debug_event_valid[DBG_ENGINE_ERROR] = 1'b1;
-            debug_event_addr_candidate[DBG_ENGINE_ERROR] = output_ptr_q;
+            debug_event_addr_candidate[DBG_ENGINE_ERROR] = output_ptr_active_q;
             debug_event_info_candidate[DBG_ENGINE_ERROR] = make_debug_info(
                 3'd7, DBG_DIR_INTERNAL, DBG_MASTER_INTERNAL);
         end
@@ -533,9 +561,9 @@ module fir_seq_accel #(
     fir_tap_bram u_tap_bram (
         .clk_i(clk_i),
         .rst_i(engine_reset),
-        .sample_base_word_i(sample_base_word),
-        .coefficient_base_word_i(coefficient_base_word),
-        .tap_count_i(tap_count_reg_q[5:0]),
+        .sample_base_word_i(active_sample_base_word),
+        .coefficient_base_word_i(active_coefficient_base_word),
+        .tap_count_i(tap_count_active_q[5:0]),
         .cfg_valid_o(bram_cfg_valid),
         .tap_req_i(prefetch_req),
         .tap_index_i(prefetch_addr),
@@ -583,7 +611,7 @@ module fir_seq_accel #(
         .in_valid_i(selector_in_valid),
         .in_ready_o(selector_in_ready),
         .arch_select_i(run_arch_q),
-        .tap_count_i(tap_count_reg_q[5:0]),
+        .tap_count_i(tap_count_active_q[5:0]),
         .sample_vector_i(sample_vector_q),
         .coefficient_vector_i(coefficient_vector_q),
         .out_valid_o(selector_out_valid),
@@ -603,15 +631,21 @@ module fir_seq_accel #(
             coefficient_ptr_q <= COEFF_BASE;
             input_ptr_q <= INPUT_BASE;
             output_ptr_q <= OUTPUT_BASE;
+            sample_count_cfg_q <= 32'd0;
+            tap_count_active_q <= 6'd0;
+            sample_count_active_q <= 32'd0;
+            coefficient_ptr_active_q <= COEFF_BASE;
+            input_ptr_active_q <= INPUT_BASE;
+            output_ptr_active_q <= OUTPUT_BASE;
             busy_q <= 1'b0;
             done_sticky_q <= 1'b0;
             error_sticky_q <= 1'b0;
             exec_state_q <= EXEC_IDLE;
             prefetch_index_q <= 5'd0;
-             run_arch_q <= 2'd0;
-             sample_vector_q <= '0;
-             coefficient_vector_q <= '0;
-             mem_write_rejected_q <= 1'b0;
+            run_arch_q <= 2'd0;
+            sample_vector_q <= '0;
+            coefficient_vector_q <= '0;
+            mem_write_rejected_q <= 1'b0;
             result_commit_q <= 1'b0;
             result_commit_addr_q <= OUTPUT_BASE;
             result_commit_data_q <= 32'sd0;
@@ -619,13 +653,13 @@ module fir_seq_accel #(
             elapsed_cycles_work_q <= 32'd0;
             first_input_seen_q <= 1'b0;
             compute_elapsed_work_q <= 32'd0;
-             sample_count_q <= 32'd0;
-             compute_cycles_q <= 32'd0;
-             debug_status_q <= 8'd0;
-             debug_addr_q <= 32'd0;
-             debug_info_q <= 32'd0;
-             internal_fault_q <= 1'b0;
-             bram_fault_seen_q <= 1'b0;
+            result_count_q <= 32'd0;
+            compute_cycles_q <= 32'd0;
+            debug_status_q <= 8'd0;
+            debug_addr_q <= 32'd0;
+            debug_info_q <= 32'd0;
+            internal_fault_q <= 1'b0;
+            bram_fault_seen_q <= 1'b0;
          end else begin
             rsp_valid_q <= 1'b0;
             rsp_error_q <= 1'b0;
@@ -641,12 +675,13 @@ module fir_seq_accel #(
               if (internal_fault_event_now) begin
                   internal_fault_q <= 1'b1;
                   error_sticky_q <= 1'b1;
-              end else if (invalid_config_event_now) begin
-                  error_sticky_q <= 1'b1;
-                  done_sticky_q <= 1'b0;
-                   cycles_total_q <= 32'd0;
-                   compute_cycles_q <= 32'd0;
-              end else if (clear_error_request_now && !internal_fault_q)
+                end else if (invalid_config_event_now) begin
+                    error_sticky_q <= 1'b1;
+                    done_sticky_q <= 1'b0;
+                    cycles_total_q <= 32'd0;
+                    compute_cycles_q <= 32'd0;
+                    result_count_q <= 32'd0;
+               end else if (clear_error_request_now && !internal_fault_q)
                  error_sticky_q <= 1'b0;
 
              debug_status_q <= (debug_status_q & ~(clear_debug_request_now ? debug_clear_mask_now : 8'd0)) |
@@ -694,7 +729,7 @@ module fir_seq_accel #(
                         if (tap_valid) begin
                             sample_vector_q[prefetch_index_q*32 +: 32] <= sample_tap;
                             coefficient_vector_q[prefetch_index_q*32 +: 32] <= coefficient_tap;
-                            if (({1'b0, prefetch_index_q} + 6'd1) >= tap_count_reg_q[5:0]) begin
+                            if (({1'b0, prefetch_index_q} + 6'd1) >= tap_count_active_q[5:0]) begin
                                 exec_state_q <= EXEC_SELECTOR_SUBMIT;
                             end else begin
                                 prefetch_index_q <= prefetch_index_q + 5'd1;
@@ -715,13 +750,15 @@ module fir_seq_accel #(
                             cycles_total_q <= elapsed_cycles_work_q + 32'd1;
                             compute_cycles_q <= first_input_seen_q ?
                                                 (compute_elapsed_work_q + 32'd1) : 32'd0;
-                            if (!bram_range_fault && !selector_out_error &&
+                            if (!bram_range_fault && bram_cfg_valid && !selector_out_error &&
+                                (sample_count_active_q >= 32'd1) &&
+                                (sample_count_active_q <= 32'd1024) &&
                                 (selector_active_arch == run_arch_q) && (selector_cycles != 16'd0)) begin
                                 done_sticky_q <= 1'b1;
                                 result_commit_q <= 1'b1;
-                                result_commit_addr_q <= output_ptr_q;
+                                result_commit_addr_q <= output_ptr_active_q;
                                 result_commit_data_q <= selector_result;
-                                sample_count_q <= sample_count_q + 32'd1;
+                                result_count_q <= result_count_q + 32'd1;
                             end else begin
                                 done_sticky_q <= 1'b0;
                                 error_sticky_q <= 1'b1;
@@ -764,9 +801,15 @@ module fir_seq_accel #(
                                     exec_state_q <= EXEC_PREFETCH_REQUEST;
                                     prefetch_index_q <= 5'd0;
                                     run_arch_q <= req_wdata_i[3:2];
+                                    tap_count_active_q <= tap_count_reg_q[5:0];
+                                    sample_count_active_q <= sample_count_cfg_q;
+                                    coefficient_ptr_active_q <= coefficient_ptr_q;
+                                    input_ptr_active_q <= input_ptr_q;
+                                    output_ptr_active_q <= output_ptr_q;
                                     sample_vector_q <= '0;
                                     coefficient_vector_q <= '0;
                                     done_sticky_q <= 1'b0;
+                                    result_count_q <= 32'd0;
                                     cycles_total_q <= 32'd0;
                                     compute_cycles_q <= 32'd0;
                                     elapsed_cycles_work_q <= 32'd0;
@@ -790,6 +833,9 @@ module fir_seq_accel #(
                             REG_OUTPUT_PTR: begin
                                 output_ptr_q <= req_wdata_i;
                             end
+                            REG_SAMPLE_COUNT: begin
+                                sample_count_cfg_q <= req_wdata_i;
+                            end
                             REG_DBG_STATUS: begin
                                 // Debug W1C state changes are handled by the
                                 // clear_debug_request_now path above.
@@ -808,7 +854,7 @@ module fir_seq_accel #(
                         REG_INPUT_PTR:      rsp_rdata_q <= input_ptr_q;
                         REG_OUTPUT_PTR:     rsp_rdata_q <= output_ptr_q;
                         REG_CYCLES_TOTAL:   rsp_rdata_q <= cycles_total_q;
-                        REG_SAMPLE_COUNT:   rsp_rdata_q <= sample_count_q;
+                        REG_SAMPLE_COUNT:   rsp_rdata_q <= sample_count_cfg_q;
                         REG_COMPUTE_CYCLES: rsp_rdata_q <= compute_cycles_q;
                         REG_AUTO_CFG:       rsp_rdata_q <= 32'd0;
                         REG_AUTO_SELECTED:  rsp_rdata_q <= 32'd0;
@@ -816,7 +862,7 @@ module fir_seq_accel #(
                         REG_DBG_STATUS:     rsp_rdata_q <= {24'd0, debug_status_q};
                         REG_DBG_ADDR:       rsp_rdata_q <= debug_addr_q;
                         REG_DBG_INFO:       rsp_rdata_q <= debug_info_q;
-                         REG_RESULT_COUNT:   rsp_rdata_q <= sample_count_q;
+                        REG_RESULT_COUNT:   rsp_rdata_q <= result_count_q;
                         REG_CONTRACT_VERSION: rsp_rdata_q <= 32'd0;
                         REG_BUILD_ID:       rsp_rdata_q <= 32'd0;
                         default: rsp_error_q <= 1'b1;

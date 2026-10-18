@@ -50,6 +50,7 @@ module tb_fir_seq_accel #(
 
     localparam logic [11:0] REG_CTRL = 12'h000;
     localparam logic [11:0] REG_STATUS = 12'h004;
+    localparam logic [11:0] REG_SAMPLE_COUNT = 12'h01c;
     localparam logic [11:0] REG_DBG_STATUS = 12'h030;
     localparam logic [11:0] REG_DBG_ADDR = 12'h034;
     localparam logic [11:0] REG_DBG_INFO = 12'h038;
@@ -288,6 +289,8 @@ module tb_fir_seq_accel #(
 
         csr_write(12'h008, 32'd4, transaction_error);
         if (transaction_error) $fatal(1, "FAIL: TAP_COUNT config write rejected");
+        csr_write(REG_SAMPLE_COUNT, 32'd1, transaction_error);
+        if (transaction_error) $fatal(1, "FAIL: SAMPLE_COUNT config write rejected");
         csr_write(12'h00c, 32'h0002_0000, transaction_error);
         if (transaction_error) $fatal(1, "FAIL: COEFF_PTR config write rejected");
         csr_write(12'h010, 32'h0002_1002, transaction_error);
@@ -352,6 +355,8 @@ module tb_fir_seq_accel #(
         rst = 1'b0;
         csr_write(12'h008, 32'(LANES), transaction_error);
         if (transaction_error) $fatal(1, "FAIL: %0d-tap config write rejected", LANES);
+        csr_write(REG_SAMPLE_COUNT, 32'd1, transaction_error);
+        if (transaction_error) $fatal(1, "FAIL: SAMPLE_COUNT reset-recovery config write rejected");
         csr_write(12'h00c, 32'h0002_0000, transaction_error);
         csr_write(12'h010, 32'h0002_1000, transaction_error);
         csr_write(12'h014, 32'h0002_2000, transaction_error);

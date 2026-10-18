@@ -39,6 +39,8 @@ _start:
     sw      t0, 16(s3)             # INPUT_PTR
     lui     t0, 0x22
     sw      t0, 20(s3)             # OUTPUT_PTR
+    li      t0, 1
+    sw      t0, 28(s3)             # SAMPLE_COUNT: one legacy window
 
     # Architecture 00: sequential (CTRL = 0b0001).
     li      t0, 1
@@ -83,9 +85,9 @@ pipe_poll_done:
     bne     t1, t2, fail
     sw      t1, 4(s2)              # result signature
 
-    # SAMPLE_COUNT must show that all three selected engines committed once.
-    lw      t1, 28(s3)
-    li      t2, 3
+    # RESULT_COUNT reports the one legacy result committed by the final run.
+    lw      t1, 60(s3)
+    li      t2, 1
     bne     t1, t2, fail
     sw      t1, 12(s2)
     li      t2, 0x600d600d         # PASS sentinel

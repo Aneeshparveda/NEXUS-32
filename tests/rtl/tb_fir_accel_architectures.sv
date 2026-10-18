@@ -202,6 +202,8 @@ module tb_fir_accel_architectures #(
         if (transaction_error) $fatal(1, "FAIL: INPUT_PTR write rejected");
         csr_write(12'h014, 32'h0002_2000, transaction_error); // OUTPUT_PTR
         if (transaction_error) $fatal(1, "FAIL: OUTPUT_PTR write rejected");
+        csr_write(12'h01c, 32'd1, transaction_error); // SAMPLE_COUNT
+        if (transaction_error) $fatal(1, "FAIL: SAMPLE_COUNT write rejected");
         // ------------------------------------------------------------------
         // Test 1: First valid tap (tap_count = 1) across all three architectures
         // ------------------------------------------------------------------
@@ -231,8 +233,11 @@ module tb_fir_accel_architectures #(
             if (transaction_error || read_value == 0 || read_value >= total_cycles_value)
                 $fatal(1, "FAIL: 1-tap arch %0d compute interval invalid compute=%0d total=%0d", arch, read_value, total_cycles_value);
             csr_read(12'h01c, read_value, transaction_error);
-            if (transaction_error || read_value != (arch + 1))
-                $fatal(1, "FAIL: sample count after 1-tap arch %0d was %0d", arch, read_value);
+            if (transaction_error || read_value != 1)
+                $fatal(1, "FAIL: configured sample count after 1-tap arch %0d was %0d", arch, read_value);
+            csr_read(12'h03c, read_value, transaction_error);
+            if (transaction_error || read_value != 1)
+                $fatal(1, "FAIL: result count after 1-tap arch %0d was %0d", arch, read_value);
         end
 
         // ------------------------------------------------------------------
@@ -264,8 +269,11 @@ module tb_fir_accel_architectures #(
             if (transaction_error || read_value == 0 || read_value >= total_cycles_value)
                 $fatal(1, "FAIL: %0d-tap arch %0d compute interval invalid compute=%0d total=%0d", LANES, arch, read_value, total_cycles_value);
             csr_read(12'h01c, read_value, transaction_error);
-            if (transaction_error || read_value != (3 + arch + 1))
-                $fatal(1, "FAIL: sample count after %0d-tap arch %0d was %0d", LANES, arch, read_value);
+            if (transaction_error || read_value != 1)
+                $fatal(1, "FAIL: configured sample count after %0d-tap arch %0d was %0d", LANES, arch, read_value);
+            csr_read(12'h03c, read_value, transaction_error);
+            if (transaction_error || read_value != 1)
+                $fatal(1, "FAIL: result count after %0d-tap arch %0d was %0d", LANES, arch, read_value);
         end
 
         // ------------------------------------------------------------------
@@ -339,6 +347,7 @@ module tb_fir_accel_architectures #(
         // Test 6: Soft reset recovery while busy
         // ------------------------------------------------------------------
         csr_write(12'h008, 32'(LANES), transaction_error);
+        csr_write(12'h01c, 32'd1, transaction_error);
         csr_write(12'h000, 32'h0000_0009, transaction_error); // pipeline START
         if (transaction_error || !busy) $fatal(1, "FAIL: pipeline START for soft reset test rejected");
         repeat (3) @(negedge clk);
@@ -353,6 +362,7 @@ module tb_fir_accel_architectures #(
         // Test 7: Hard reset recovery while busy
         // ------------------------------------------------------------------
         csr_write(12'h008, 32'(LANES), transaction_error);
+        csr_write(12'h01c, 32'd1, transaction_error);
         csr_write(12'h000, 32'h0000_0005, transaction_error); // parallel START
         if (transaction_error || !busy) $fatal(1, "FAIL: parallel START for hard reset test rejected");
         repeat (2) @(negedge clk);
