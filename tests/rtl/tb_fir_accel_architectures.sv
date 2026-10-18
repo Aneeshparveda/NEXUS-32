@@ -20,6 +20,9 @@ module tb_fir_accel_architectures #(
     logic coefficient_we = 1'b0;
     logic [9:0] coefficient_waddr = 10'd0;
     logic signed [31:0] coefficient_wdata = 32'sd0;
+    logic [7:0] host_event_set = 8'd0;
+    logic [31:0] host_event_addr = 32'd0;
+    logic [31:0] host_event_info = 32'd0;
 
     wire sample_rvalid;
     wire signed [31:0] sample_rdata;
@@ -96,6 +99,9 @@ module tb_fir_accel_architectures #(
         .host_coefficient_we_i(coefficient_we),
         .host_coefficient_waddr_i(coefficient_waddr),
         .host_coefficient_wdata_i(coefficient_wdata),
+        .host_event_set_i(host_event_set),
+        .host_event_addr_i(host_event_addr),
+        .host_event_info_i(host_event_info),
         .bank_owned_o(bank_owned), .mem_write_rejected_o(mem_write_rejected),
         .result_commit_o(result_commit), .result_commit_addr_o(result_commit_addr),
         .result_commit_data_o(result_commit_data), .busy_o(busy),
@@ -196,7 +202,6 @@ module tb_fir_accel_architectures #(
         if (transaction_error) $fatal(1, "FAIL: INPUT_PTR write rejected");
         csr_write(12'h014, 32'h0002_2000, transaction_error); // OUTPUT_PTR
         if (transaction_error) $fatal(1, "FAIL: OUTPUT_PTR write rejected");
-
         // ------------------------------------------------------------------
         // Test 1: First valid tap (tap_count = 1) across all three architectures
         // ------------------------------------------------------------------
@@ -269,8 +274,8 @@ module tb_fir_accel_architectures #(
         csr_write(12'h008, 32'd0, transaction_error);
         if (transaction_error) $fatal(1, "FAIL: TAP_COUNT=0 write rejected at CSR layer");
         csr_write(12'h000, 32'd1, transaction_error);
-        if (!transaction_error || busy)
-            $fatal(1, "FAIL: START with TAP_COUNT=0 was not rejected");
+        if (transaction_error || busy)
+            $fatal(1, "FAIL: START with TAP_COUNT=0 bus response/state mismatch");
         csr_read(12'h004, read_value, transaction_error);
         if (transaction_error || !read_value[2] || read_value[0])
             $fatal(1, "FAIL: TAP_COUNT=0 did not set ERROR sticky: %08x", read_value);
@@ -283,8 +288,8 @@ module tb_fir_accel_architectures #(
         csr_write(12'h008, 32'(LANES + 1), transaction_error);
         if (transaction_error) $fatal(1, "FAIL: TAP_COUNT=LANES+1 write rejected at CSR layer");
         csr_write(12'h000, 32'd1, transaction_error);
-        if (!transaction_error || busy)
-            $fatal(1, "FAIL: START with TAP_COUNT=%0d was not rejected for LANES=%0d", LANES + 1, LANES);
+        if (transaction_error || busy)
+            $fatal(1, "FAIL: START with TAP_COUNT=%0d bus response/state mismatch for LANES=%0d", LANES + 1, LANES);
         csr_read(12'h004, read_value, transaction_error);
         if (transaction_error || !read_value[2] || read_value[0])
             $fatal(1, "FAIL: TAP_COUNT=LANES+1 did not set ERROR sticky: %08x", read_value);
@@ -296,8 +301,8 @@ module tb_fir_accel_architectures #(
         // ------------------------------------------------------------------
         csr_write(12'h008, 32'(LANES), transaction_error);
         csr_write(12'h000, 32'h0000_000d, transaction_error);
-        if (!transaction_error || busy)
-            $fatal(1, "FAIL: reserved/AUTO architecture selection was not rejected");
+        if (transaction_error || busy)
+            $fatal(1, "FAIL: reserved/AUTO architecture selection bus response/state mismatch");
         csr_read(12'h004, read_value, transaction_error);
         if (transaction_error || !read_value[2] || read_value[0])
             $fatal(1, "FAIL: invalid architecture did not set ERROR: %08x", read_value);
@@ -318,12 +323,12 @@ module tb_fir_accel_architectures #(
         @(negedge clk);
         sample_we = 1'b0;
         wait (busy === 1'b0);
-        #1;
-        if (commit_count != 6)
-            $fatal(1, "FAIL: result committed after active-bank write attempt, count=%0d", commit_count);
-        if (!error_sticky)
-            $fatal(1, "FAIL: bank write rejection did not set sticky ERROR");
-        // Soft RESET to clear ownership fault
+        repeat (2) @(negedge clk);
+        if (commit_count != 7)
+            $fatal(1, "FAIL: ownership write suppressed result commit, count=%0d", commit_count);
+        if (error_sticky)
+            $fatal(1, "FAIL: bank write rejection set sticky ERROR");
+        // Soft RESET to clear debug state
         csr_write(12'h000, 32'h0000_0002, transaction_error);
         if (transaction_error || busy) $fatal(1, "FAIL: soft RESET failed after ownership fault");
         csr_read(12'h004, read_value, transaction_error);
@@ -364,8 +369,8 @@ module tb_fir_accel_architectures #(
             $fatal(1, "FAIL: hard RESET did not clear TAP_COUNT: %08x", read_value);
 
         repeat (2) @(negedge clk);
-        if (commit_count != 6)
-            $fatal(1, "FAIL: expected exactly six commits before finish, got %0d", commit_count);
+        if (commit_count != 7)
+            $fatal(1, "FAIL: expected exactly seven commits before finish, got %0d", commit_count);
         $display("PASS: CSR-driven sequential/parallel/pipelined execution, common results, ARCH_SEL validation, stalls, and resets (LANES=%0d)", LANES);
         $finish;
     end

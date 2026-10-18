@@ -35,6 +35,9 @@ module tb_nexus32_accel_bus #(
     localparam logic [31:0] INPUT_PTR_ADDR = 32'h1000_5010;
     localparam logic [31:0] OUTPUT_PTR_ADDR = 32'h1000_5014;
     localparam logic [31:0] SAMPLE_COUNT_ADDR = 32'h1000_501c;
+    localparam logic [31:0] DBG_STATUS_ADDR = 32'h1000_5030;
+    localparam logic [31:0] DBG_ADDR_ADDR = 32'h1000_5034;
+    localparam logic [31:0] DBG_INFO_ADDR = 32'h1000_5038;
 
     wire result_commit_mon;
 
@@ -116,6 +119,31 @@ module tb_nexus32_accel_bus #(
         repeat (4) @(negedge clk);
         rst = 1'b0;
 
+        // A well-formed START with reset defaults is a semantic preflight
+        // rejection, not a malformed bus transaction. It must complete
+        // normally while reporting INVALID_CONFIG through the CSRs.
+        bus_xfer(1'b1, CTRL_ADDR, 32'd1, 4'hf, rd, err);
+        if (err || rd !== 32'd0)
+            $fatal(1, "invalid START bus response mismatch: err=%b data=%08x", err, rd);
+        bus_xfer(1'b0, STATUS_ADDR, 32'd0, 4'hf, rd, err);
+        if (err || !rd[2] || rd[0] || rd[1])
+            $fatal(1, "invalid START STATUS mismatch: err=%b status=%08x", err, rd);
+        bus_xfer(1'b0, DBG_STATUS_ADDR, 32'd0, 4'hf, rd, err);
+        if (err || !(rd & 32'h0000_0020))
+            $fatal(1, "INVALID_CONFIG debug event missing: err=%b debug=%08x", err, rd);
+        bus_xfer(1'b1, DBG_STATUS_ADDR, 32'h0000_0020, 4'hf, rd, err);
+        if (err) $fatal(1, "idle INVALID_CONFIG debug W1C failed");
+        bus_xfer(1'b0, STATUS_ADDR, 32'd0, 4'hf, rd, err);
+        if (err || !rd[2])
+            $fatal(1, "debug W1C incorrectly cleared STATUS.ERROR: %08x", rd);
+        bus_xfer(1'b1, STATUS_ADDR, 32'h0000_0004, 4'hf, rd, err);
+        if (err) $fatal(1, "recoverable STATUS.ERROR W1C failed");
+        bus_xfer(1'b0, STATUS_ADDR, 32'd0, 4'hf, rd, err);
+        if (err || rd[2])
+            $fatal(1, "STATUS.ERROR did not clear after W1C: %08x", rd);
+        if (bus_fault_sticky)
+            $fatal(1, "well-formed invalid START set bus fault sticky");
+
         // Initialize all words before starting the accelerator. Q16.16 1.0.
         for (i = 0; i < 32; i = i + 1) begin
             bus_xfer(1'b1, COEFF_BASE + (i * 4), 32'h0001_0000, 4'hf, rd, err);
@@ -167,20 +195,53 @@ module tb_nexus32_accel_bus #(
         if (commit_count != 1)
             $fatal(1, "expected exactly one result commit, saw %0d", commit_count);
 
-        // Error paths: misaligned, unmapped, and host write to read-only result.
+        // Error paths: mapped malformed, unmapped, and result-write priority.
         bus_xfer(1'b0, SAMPLE_BASE + 1, 32'd0, 4'hf, rd, err);
-        if (!err) $fatal(1, "misaligned read was not rejected");
-        bus_xfer(1'b0, 32'h0003_0000, 32'd0, 4'hf, rd, err);
-        if (!err) $fatal(1, "unmapped read was not rejected");
+        if (!err || rd !== 32'd0) $fatal(1, "mapped malformed read response mismatch");
+        bus_xfer(1'b0, 32'h0003_0001, 32'd0, 4'hf, rd, err);
+        if (!err || rd !== 32'hdead_beef)
+            $fatal(1, "unmapped malformed read response mismatch: err=%b data=%08x", err, rd);
         bus_xfer(1'b1, RESULT_BASE, 32'hdead_beef, 4'hf, rd, err);
-        if (!err) $fatal(1, "host write to result RAM was not rejected");
+        if (!err || rd !== 32'd0) $fatal(1, "host result write response mismatch");
+        bus_xfer(1'b1, RESULT_BASE + 1, 32'hdead_beef, 4'h1, rd, err);
+        if (!err || rd !== 32'd0) $fatal(1, "misaligned result write response mismatch");
+        bus_xfer(1'b0, DBG_STATUS_ADDR, 32'd0, 4'hf, rd, err);
+        if (err || !(rd & 32'h0000_000b) || (rd & 32'h0000_0004))
+            $fatal(1, "debug classification mismatch: err=%b debug=%08x", err, rd);
+        bus_xfer(1'b0, DBG_ADDR_ADDR, 32'd0, 4'hf, rd, err);
+        if (err || rd !== RESULT_BASE + 1)
+            $fatal(1, "result-write debug address mismatch: %08x", rd);
+        bus_xfer(1'b0, CTRL_ADDR + 32'h24, 32'd0, 4'hf, rd, err);
+        if (err || rd !== 32'd0)
+            $fatal(1, "AUTO_CFG reserved read mismatch: err=%b data=%08x", err, rd);
+        bus_xfer(1'b1, CTRL_ADDR + 32'h24, 32'h1, 4'hf, rd, err);
+        if (!err || rd !== 32'd0)
+            $fatal(1, "AUTO_CFG reserved write response mismatch");
+        bus_xfer(1'b0, CTRL_ADDR + 32'h48, 32'd0, 4'hf, rd, err);
+        if (!err || rd !== 32'd0)
+            $fatal(1, "unlisted CSR read response mismatch");
         if (!bus_fault_sticky) $fatal(1, "bus fault sticky bit did not set");
+
+        // Accelerator/debug W1C operations do not clear the external sticky
+        // CPU/bus diagnostic; only rst_i clears it.
+        bus_xfer(1'b1, CTRL_ADDR, 32'd2, 4'hf, rd, err);
+        if (err) $fatal(1, "CTRL.RESET failed after host bus errors");
+        bus_xfer(1'b1, DBG_STATUS_ADDR, 32'h0000_003f, 4'hf, rd, err);
+        if (err) $fatal(1, "debug W1C failed after CTRL.RESET");
+        if (!bus_fault_sticky)
+            $fatal(1, "CTRL.RESET/debug W1C incorrectly cleared bus fault sticky");
+        bus_xfer(1'b0, CTRL_ADDR + 32'h48, 32'd0, 4'hf, rd, err);
+        if (!err || rd !== 32'd0)
+            $fatal(1, "unlisted CSR read after reset response mismatch");
+        bus_xfer(1'b0, DBG_STATUS_ADDR, 32'd0, 4'hf, rd, err);
+        if (err || !(rd & 32'h0000_0002))
+            $fatal(1, "reserved CSR read did not set BUS_ACCESS: %08x", rd);
 
         // Test invalid tap count rejection (> LANES) through the bus interface
         bus_xfer(1'b1, TAP_COUNT_ADDR, 32'(LANES + 1), 4'hf, rd, err);
         if (err) $fatal(1, "invalid tap count CSR write failed to accept cycle");
         bus_xfer(1'b1, CTRL_ADDR, 32'd1, 4'hf, rd, err);
-        if (!err) $fatal(1, "invalid tap count START was not rejected with bus error");
+        if (err) $fatal(1, "invalid tap count START should complete normally");
         if (accelerator_busy)
             $fatal(1, "accelerator entered busy on invalid tap count");
         if (!accelerator_error)
@@ -191,24 +252,54 @@ module tb_nexus32_accel_bus #(
         if (accelerator_error)
             $fatal(1, "accelerator error bit not cleared by soft reset");
 
+        // Set a clearable event before the next run, then verify that a debug
+        // W1C while busy is rejected without clearing it.
+        bus_xfer(1'b1, RESULT_BASE, 32'hdead_beef, 4'hf, rd, err);
+        if (!err) $fatal(1, "result write did not set a clearable debug event");
+
         // Now launch a max-tap block and try to write the owned sample bank.
-        // The attempted write must be rejected and the failed run must not
-        // produce another result commit.
+        // The attempted write must be rejected, but host protection must not
+        // invalidate the active run or suppress its result commit.
         bus_xfer(1'b1, TAP_COUNT_ADDR, 32'(LANES), 4'hf, rd, err);
         if (err) $fatal(1, "max-tap configuration write failed");
         bus_xfer(1'b1, CTRL_ADDR, 32'd1, 4'hf, rd, err);
         if (err) $fatal(1, "max-tap START failed");
-        if (!accelerator_busy)
-            $fatal(1, "accelerator completed unexpectedly before ownership test");
-        bus_xfer(1'b1, SAMPLE_BASE + 0, 32'hdead_beef, 4'hf, rd, err);
-        if (!err) $fatal(1, "sample write during ownership was not rejected");
+        // The four-lane engine can retire the entire transaction before a
+        // second bus request is issued. The direct shell test covers the
+        // simultaneous busy/debug case; use the bus-level ownership sequence
+        // where the 32-lane run remains active long enough for both requests.
+        if (LANES == 32) begin
+            if (!accelerator_busy)
+                $fatal(1, "accelerator completed unexpectedly before ownership test");
+            bus_xfer(1'b1, CTRL_ADDR, 32'd1, 4'hf, rd, err);
+            if (err || !accelerator_busy)
+                $fatal(1, "START while BUSY was not a normal no-op");
+            bus_xfer(1'b0, SAMPLE_BASE + 0, 32'd0, 4'hf, rd, err);
+            if (!err || rd !== 32'hbad0_0001)
+                $fatal(1, "owned sample read sentinel mismatch: err=%b data=%08x", err, rd);
+            bus_xfer(1'b1, DBG_STATUS_ADDR, 32'h0000_0008, 4'hf, rd, err);
+            if (!err) $fatal(1, "debug W1C while busy was not rejected");
+            bus_xfer(1'b0, DBG_STATUS_ADDR, 32'd0, 4'hf, rd, err);
+            if (err || !(rd & 32'h0000_0008) || !(rd & 32'h0000_0002))
+                $fatal(1, "busy debug W1C classification mismatch: %08x", rd);
+            bus_xfer(1'b1, SAMPLE_BASE + 0, 32'hdead_beef, 4'hf, rd, err);
+            if (!err) $fatal(1, "sample write during ownership was not rejected");
+            bus_xfer(1'b1, COEFF_BASE + 0, 32'hdead_beef, 4'hf, rd, err);
+            if (!err) $fatal(1, "coefficient write during ownership was not rejected");
+        end
         wait_for_done(100, done_seen);
-        if (!done_seen) $fatal(1, "max-tap accelerator did not complete after rejected write");
+        if (!done_seen) $fatal(1, "max-tap accelerator did not complete");
         repeat (3) @(negedge clk);
-        if (commit_count != 1)
-            $fatal(1, "ownership fault should suppress second result commit; count=%0d", commit_count);
-        if (!accelerator_error)
-            $fatal(1, "accelerator error sticky bit did not report ownership violation");
+        bus_xfer(1'b0, SAMPLE_BASE + 0, 32'd0, 4'hf, rd, err);
+        if (err || rd !== 32'h0002_0000)
+            $fatal(1, "protected sample write changed BRAM contents: %08x", rd);
+        bus_xfer(1'b0, COEFF_BASE + 0, 32'd0, 4'hf, rd, err);
+        if (err || rd !== 32'h0001_0000)
+            $fatal(1, "protected coefficient write changed BRAM contents: %08x", rd);
+        if (commit_count != 2)
+            $fatal(1, "ownership violation should not suppress result commit; count=%0d", commit_count);
+        if (accelerator_error)
+            $fatal(1, "ownership violation incorrectly set accelerator ERROR");
 
         $display("PASS: NEXUS-32 system bus, RAM mapping, result commit, errors, and ownership tests");
         $finish;

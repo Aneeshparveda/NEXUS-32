@@ -95,7 +95,10 @@ module nexus32_soc #(
             cpu_mem_rdata = local_rdata_q;
         end else if ((bridge_state_q == ST_MMIO_WAIT) && accel_rsp_valid) begin
             cpu_mem_ready = 1'b1;
-            cpu_mem_rdata = accel_rsp_error ? 32'd0 : accel_rsp_rdata;
+            // Preserve accelerator diagnostic response data, including the
+            // protected-memory sentinel, while reporting the error separately
+            // through the sticky external bus-fault diagnostic.
+            cpu_mem_rdata = accel_rsp_rdata;
         end
     end
 

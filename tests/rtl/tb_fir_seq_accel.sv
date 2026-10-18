@@ -29,6 +29,9 @@ module tb_fir_seq_accel #(
     logic coefficient_we = 1'b0;
     logic [9:0] coefficient_waddr = 10'd0;
     logic signed [31:0] coefficient_wdata = 32'sd0;
+    logic [7:0] host_event_set = 8'd0;
+    logic [31:0] host_event_addr = 32'd0;
+    logic [31:0] host_event_info = 32'd0;
 
     wire bank_owned;
     wire mem_write_rejected;
@@ -44,6 +47,12 @@ module tb_fir_seq_accel #(
     logic transaction_error;
     logic [31:0] read_value;
     logic [31:0] total_cycles_value;
+
+    localparam logic [11:0] REG_CTRL = 12'h000;
+    localparam logic [11:0] REG_STATUS = 12'h004;
+    localparam logic [11:0] REG_DBG_STATUS = 12'h030;
+    localparam logic [11:0] REG_DBG_ADDR = 12'h034;
+    localparam logic [11:0] REG_DBG_INFO = 12'h038;
 
     always #5 clk = ~clk;
     always @(posedge clk) begin
@@ -79,6 +88,9 @@ module tb_fir_seq_accel #(
         .host_coefficient_we_i(coefficient_we),
         .host_coefficient_waddr_i(coefficient_waddr),
         .host_coefficient_wdata_i(coefficient_wdata),
+        .host_event_set_i(host_event_set),
+        .host_event_addr_i(host_event_addr),
+        .host_event_info_i(host_event_info),
         .bank_owned_o(bank_owned),
         .mem_write_rejected_o(mem_write_rejected),
         .result_commit_o(result_commit),
@@ -166,6 +178,103 @@ module tb_fir_seq_accel #(
         end
     endtask
 
+    task automatic csr_write_with_memory_events(
+        input logic [11:0] address,
+        input logic [31:0] data,
+        input logic [9:0] sample_word_address,
+        input logic [9:0] coefficient_word_address,
+        output logic error_out
+    );
+        begin
+            @(negedge clk);
+            while (!req_ready) @(negedge clk);
+            req_valid = 1'b1;
+            req_write = 1'b1;
+            req_addr = address;
+            req_wdata = data;
+            req_wstrb = 4'hf;
+            sample_we = 1'b1;
+            sample_waddr = sample_word_address;
+            sample_wdata = 32'sh7fff_ffff;
+            coefficient_we = 1'b1;
+            coefficient_waddr = coefficient_word_address;
+            coefficient_wdata = 32'sh7fff_ffff;
+            @(posedge clk);
+            @(negedge clk);
+            req_valid = 1'b0;
+            req_write = 1'b0;
+            req_addr = 12'd0;
+            req_wdata = 32'd0;
+            sample_we = 1'b0;
+            coefficient_we = 1'b0;
+            // host_event_set_i models a one-cycle bus-side event pulse.
+            host_event_set = 8'd0;
+            #1;
+            if (!rsp_valid) begin
+                $display("FAIL: simultaneous CSR/host response missing");
+                $fatal(1);
+            end
+            error_out = rsp_error;
+            @(negedge clk);
+        end
+    endtask
+
+    task automatic pulse_host_event(
+        input logic [7:0] event_set,
+        input logic [31:0] event_addr,
+        input logic [31:0] event_info
+    );
+        begin
+            @(negedge clk);
+            host_event_set = event_set;
+            host_event_addr = event_addr;
+            host_event_info = event_info;
+            @(posedge clk);
+            @(negedge clk);
+            host_event_set = 8'd0;
+            host_event_addr = 32'd0;
+            host_event_info = 32'd0;
+        end
+    endtask
+
+    task automatic csr_write_with_host_event(
+        input logic [11:0] address,
+        input logic [31:0] data,
+        input logic [7:0] event_set,
+        input logic [31:0] event_addr,
+        input logic [31:0] event_info,
+        output logic error_out
+    );
+        begin
+            @(negedge clk);
+            while (!req_ready) @(negedge clk);
+            req_valid = 1'b1;
+            req_write = 1'b1;
+            req_addr = address;
+            req_wdata = data;
+            req_wstrb = 4'hf;
+            host_event_set = event_set;
+            host_event_addr = event_addr;
+            host_event_info = event_info;
+            @(posedge clk);
+            @(negedge clk);
+            req_valid = 1'b0;
+            req_write = 1'b0;
+            req_addr = 12'd0;
+            req_wdata = 32'd0;
+            host_event_set = 8'd0;
+            host_event_addr = 32'd0;
+            host_event_info = 32'd0;
+            #1;
+            if (!rsp_valid) begin
+                $display("FAIL: CSR/event response missing at addr %03x", address);
+                $fatal(1);
+            end
+            error_out = rsp_error;
+            @(negedge clk);
+        end
+    endtask
+
     initial begin
         repeat (4) @(negedge clk);
         rst = 1'b0;
@@ -187,8 +296,8 @@ module tb_fir_seq_accel #(
         if (transaction_error) $fatal(1, "FAIL: OUTPUT_PTR config write rejected");
 
         // A misaligned pointer must fail before the engine is launched.
-        csr_write(12'h000, 32'd1, transaction_error);
-        if (!transaction_error || busy) $fatal(1, "FAIL: invalid pointer was not rejected");
+        csr_write(REG_CTRL, 32'd1, transaction_error);
+        if (transaction_error || busy) $fatal(1, "FAIL: invalid pointer bus response/state");
         csr_read(12'h004, read_value, transaction_error);
         if (transaction_error || !read_value[2] || read_value[0])
             $fatal(1, "FAIL: invalid-start STATUS mismatch: %08x", read_value);
@@ -198,7 +307,7 @@ module tb_fir_seq_accel #(
         // Correct input pointer and run four unity products: 4.0 in Q16.16.
         csr_write(12'h010, 32'h0002_1000, transaction_error);
         if (transaction_error) $fatal(1, "FAIL: valid INPUT_PTR write rejected");
-        csr_write(12'h000, 32'd1, transaction_error);
+        csr_write(REG_CTRL, 32'd1, transaction_error);
         if (transaction_error) $fatal(1, "FAIL: valid START rejected");
         wait (result_commit === 1'b1);
         #1;
@@ -221,6 +330,21 @@ module tb_fir_seq_accel #(
         if (transaction_error || read_value == 0 || read_value >= total_cycles_value)
             $fatal(1, "FAIL: compute interval should be nonzero and shorter than total, compute=%0d total=%0d", read_value, total_cycles_value);
 
+        // A valid second START clears the published counters before any new
+        // completion, without requiring an intervening hardware reset.
+        csr_write(REG_CTRL, 32'd1, transaction_error);
+        if (transaction_error || !busy)
+            $fatal(1, "FAIL: second valid START was not accepted");
+        csr_read(12'h018, read_value, transaction_error);
+        if (transaction_error || read_value != 0)
+            $fatal(1, "FAIL: CYCLES_TOTAL was not cleared on second START: %08x", read_value);
+        csr_read(12'h020, read_value, transaction_error);
+        if (transaction_error || read_value != 0)
+            $fatal(1, "FAIL: COMPUTE_CYCLES was not cleared on second START: %08x", read_value);
+        csr_write(REG_CTRL, 32'd2, transaction_error);
+        if (transaction_error || busy)
+            $fatal(1, "FAIL: second-run soft RESET failed");
+
         // Reset clears sticky safety faults but does not clear BRAM contents.
         @(negedge clk);
         rst = 1'b1;
@@ -231,12 +355,51 @@ module tb_fir_seq_accel #(
         csr_write(12'h00c, 32'h0002_0000, transaction_error);
         csr_write(12'h010, 32'h0002_1000, transaction_error);
         csr_write(12'h014, 32'h0002_2000, transaction_error);
-        csr_write(12'h000, 32'd1, transaction_error);
+        csr_write(REG_CTRL, 32'd1, transaction_error);
         if (transaction_error) $fatal(1, "FAIL: %0d-tap START rejected", LANES);
         wait (busy === 1'b1);
 
+        // A simultaneous configuration write and two owned-bank writes must
+        // preserve both event bits. MEM_OWNERSHIP has higher metadata priority
+        // than CONFIG_WHILE_BUSY, and the lower coefficient address wins the
+        // same-class address tie.
+        csr_write_with_memory_events(12'h008, 32'(LANES), 10'd7, 10'd1, transaction_error);
+        if (!transaction_error)
+            $fatal(1, "FAIL: busy configuration write was not rejected");
+        csr_read(REG_DBG_STATUS, read_value, transaction_error);
+        if (transaction_error || (read_value & 32'h0000_0014) != 32'h0000_0014)
+            $fatal(1, "FAIL: simultaneous debug bits missing: %08x", read_value);
+        csr_read(REG_DBG_ADDR, read_value, transaction_error);
+        if (transaction_error || read_value !== 32'h0002_0004)
+            $fatal(1, "FAIL: debug address priority mismatch: %08x", read_value);
+        csr_read(REG_DBG_INFO, read_value, transaction_error);
+        if (transaction_error || read_value[2:0] !== 3'd2 || read_value[4:3] !== 2'd1 || read_value[6:5] !== 2'd0)
+            $fatal(1, "FAIL: debug info priority mismatch: %08x", read_value);
+
+        // Same-class metadata ties use the documented direction/master rules.
+        // An external read at the same address must lose to the local write.
+        host_event_set = 8'h04;
+        host_event_addr = 32'h0002_0004;
+        host_event_info = 32'h0000_0022; // MEM_OWNERSHIP, read, master 1
+        csr_write_with_memory_events(12'h008, 32'(LANES), 10'd7, 10'd1, transaction_error);
+        host_event_set = 8'd0;
+        if (!transaction_error) $fatal(1, "FAIL: equal-address read/write tie was not rejected");
+        csr_read(REG_DBG_INFO, read_value, transaction_error);
+        if (transaction_error || read_value[4:3] !== 2'd1 || read_value[6:5] !== 2'd0)
+            $fatal(1, "FAIL: write-over-read metadata tie mismatch: %08x", read_value);
+
+        // With equal address and direction, the lower master ID wins.
+        host_event_set = 8'h04;
+        host_event_info = 32'h0000_002a; // MEM_OWNERSHIP, write, master 1
+        csr_write_with_memory_events(12'h008, 32'(LANES), 10'd7, 10'd1, transaction_error);
+        host_event_set = 8'd0;
+        if (!transaction_error) $fatal(1, "FAIL: equal-address master tie was not rejected");
+        csr_read(REG_DBG_INFO, read_value, transaction_error);
+        if (transaction_error || read_value[4:3] !== 2'd1 || read_value[6:5] !== 2'd0)
+            $fatal(1, "FAIL: lower-master metadata tie mismatch: %08x", read_value);
+
         // Try to alter a sample while accelerator owns the bank; write must be
-        // blocked and this job's result must not be committed.
+        // blocked without invalidating this job's result.
         @(negedge clk);
         sample_we = 1'b1;
         sample_waddr = 10'd7;
@@ -245,11 +408,94 @@ module tb_fir_seq_accel #(
         @(negedge clk);
         sample_we = 1'b0;
         wait (busy === 1'b0);
+        repeat (2) @(negedge clk);
+        if (commit_count != 2)
+            $fatal(1, "FAIL: ownership write suppressed result commit count=%0d", commit_count);
+        if (error_sticky)
+            $fatal(1, "FAIL: bank write rejection set sticky ERROR");
+
+        // RESET-only BRAM and engine events terminate an active run and
+        // cannot be cleared by W1C.
+        csr_write(REG_CTRL, 32'd1, transaction_error);
+        if (transaction_error) $fatal(1, "FAIL: active BRAM-fault run START failed");
+        wait (busy === 1'b1);
+        force dut.bram_range_fault = 1'b1;
+        @(posedge clk);
         #1;
-        if (commit_count != 1)
-            $fatal(1, "FAIL: result committed after active-bank write attempt");
-        if (!error_sticky)
-            $fatal(1, "FAIL: bank write rejection did not set sticky ERROR");
+        wait (busy === 1'b0);
+        repeat (2) @(negedge clk);
+        csr_read(REG_STATUS, read_value, transaction_error);
+        if (transaction_error || !read_value[2] || read_value[0] || read_value[1])
+            $fatal(1, "FAIL: active BRAM fault did not terminate run: %08x", read_value);
+        if (commit_count != 2)
+            $fatal(1, "FAIL: active BRAM fault produced a result commit: %0d", commit_count);
+        csr_read(REG_DBG_STATUS, read_value, transaction_error);
+        if (transaction_error || !(read_value & 32'h0000_0040))
+            $fatal(1, "FAIL: BRAM_FAULT debug bit missing: %08x", read_value);
+        // Keep the persistent BRAM fault high while a later bus event occurs.
+        // The later event must update metadata without clearing BRAM_FAULT.
+        pulse_host_event(8'h01, 32'h0003_0001, 32'd0); // BUS_UNMAPPED, read, CPU 0
+        csr_read(REG_DBG_STATUS, read_value, transaction_error);
+        if (transaction_error || (read_value & 32'h0000_0041) != 32'h0000_0041)
+            $fatal(1, "FAIL: later BUS_UNMAPPED did not preserve BRAM_FAULT: %08x", read_value);
+        csr_read(REG_DBG_ADDR, read_value, transaction_error);
+        if (transaction_error || read_value !== 32'h0003_0001)
+            $fatal(1, "FAIL: later BUS_UNMAPPED did not replace BRAM metadata: %08x", read_value);
+        csr_read(REG_DBG_INFO, read_value, transaction_error);
+        if (transaction_error || read_value[2:0] !== 3'd0 || read_value[4:3] !== 2'd0 || read_value[6:5] !== 2'd0)
+            $fatal(1, "FAIL: later BUS_UNMAPPED metadata mismatch: %08x", read_value);
+        csr_write(REG_DBG_STATUS, 32'h0000_0040, transaction_error);
+        if (transaction_error) $fatal(1, "FAIL: BRAM_FAULT W1C transaction failed");
+        csr_read(REG_DBG_STATUS, read_value, transaction_error);
+        if (transaction_error || !(read_value & 32'h0000_0040))
+            $fatal(1, "FAIL: BRAM_FAULT cleared by W1C: %08x", read_value);
+        csr_write(REG_STATUS, 32'h0000_0004, transaction_error);
+        csr_read(REG_STATUS, read_value, transaction_error);
+        if (transaction_error || !read_value[2])
+            $fatal(1, "FAIL: RESET-only STATUS.ERROR cleared by W1C: %08x", read_value);
+        release dut.bram_range_fault;
+        csr_write(REG_CTRL, 32'd2, transaction_error);
+        if (transaction_error) $fatal(1, "FAIL: soft reset did not clear BRAM fault");
+
+        force dut.selector_out_valid = 1'b1;
+        force dut.selector_out_error = 1'b1;
+        @(posedge clk);
+        #1;
+        release dut.selector_out_error;
+        release dut.selector_out_valid;
+        csr_read(REG_DBG_STATUS, read_value, transaction_error);
+        if (transaction_error || !(read_value & 32'h0000_0080))
+            $fatal(1, "FAIL: ENGINE_ERROR debug bit missing: %08x", read_value);
+        csr_write(REG_DBG_STATUS, 32'h0000_0080, transaction_error);
+        csr_read(REG_DBG_STATUS, read_value, transaction_error);
+        if (transaction_error || !(read_value & 32'h0000_0080))
+            $fatal(1, "FAIL: ENGINE_ERROR cleared by W1C: %08x", read_value);
+        csr_write(REG_CTRL, 32'd2, transaction_error);
+        csr_read(REG_DBG_STATUS, read_value, transaction_error);
+        if (transaction_error || read_value != 0)
+            $fatal(1, "FAIL: soft reset did not clear debug events: %08x", read_value);
+
+        // A newly observed BUS_ACCESS event wins over a same-edge W1C clear
+        // of the same debug bit.
+        csr_write_with_host_event(REG_DBG_STATUS, 32'h0000_0002,
+                                   8'h02, 32'h1000_5048, 32'h0000_0001,
+                                   transaction_error);
+        if (transaction_error)
+            $fatal(1, "FAIL: same-edge BUS_ACCESS/W1C transaction failed");
+        csr_read(REG_DBG_STATUS, read_value, transaction_error);
+        if (transaction_error || read_value !== 32'h0000_0002)
+            $fatal(1, "FAIL: same-edge BUS_ACCESS event lost to W1C: %08x", read_value);
+        csr_read(REG_DBG_ADDR, read_value, transaction_error);
+        if (transaction_error || read_value !== 32'h1000_5048)
+            $fatal(1, "FAIL: same-edge BUS_ACCESS address mismatch: %08x", read_value);
+        csr_read(REG_DBG_INFO, read_value, transaction_error);
+        if (transaction_error || read_value[2:0] !== 3'd1 || read_value[4:3] !== 2'd0 || read_value[6:5] !== 2'd0)
+            $fatal(1, "FAIL: same-edge BUS_ACCESS info mismatch: %08x", read_value);
+        csr_write(REG_DBG_STATUS, 32'h0000_0002, transaction_error);
+        if (transaction_error) $fatal(1, "FAIL: final BUS_ACCESS W1C failed");
+        csr_read(REG_DBG_STATUS, read_value, transaction_error);
+        if (transaction_error || read_value != 0)
+            $fatal(1, "FAIL: final BUS_ACCESS W1C did not clear bit: %08x", read_value);
 
         $display("PASS: NEXUS-32 accelerator CSR validation, execution, and ownership tests (LANES=%0d)", LANES);
         $finish;

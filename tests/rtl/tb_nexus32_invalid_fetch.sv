@@ -55,7 +55,12 @@ module tb_nexus32_invalid_fetch #(
                     $fatal(1, "invalid instruction fetch incorrectly reached the accelerator bus");
                 if (accel_busy || accel_done || accel_error)
                     $fatal(1, "accelerator state changed during invalid instruction fetch");
-                $display("PASS: invalid instruction fetch rejected locally; no accelerator request issued");
+                rst = 1'b1;
+                repeat (3) @(negedge clk);
+                if (cpu_bus_fault !== 1'b0 || dut.local_fault_sticky_q !== 1'b0 ||
+                    dut.accel_bus_fault_sticky !== 1'b0)
+                    $fatal(1, "external reset did not clear sticky CPU bus fault");
+                $display("PASS: invalid instruction fetch rejected locally; reset cleared sticky bus fault");
                 $finish;
             end
         end
