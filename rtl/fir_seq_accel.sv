@@ -269,6 +269,9 @@ module fir_seq_accel #(
     logic [9:0] accelerator_coefficient_raddr;
     logic accelerator_coefficient_rvalid;
     logic signed [31:0] accelerator_coefficient_rdata;
+    logic result_commit_address_valid_now;
+    logic result_commit_reset_cancelled_now;
+    logic result_commit_guard_fault_now;
     logic physical_result_commit_now;
     integer history_index;
 
@@ -351,7 +354,21 @@ module fir_seq_accel #(
     assign accelerator_sample_raddr = active_sample_base_word + sample_index_q[9:0];
     assign accelerator_coefficient_re = (exec_state_q == EXEC_COEFF_REQUEST) && busy_q;
     assign accelerator_coefficient_raddr = active_coefficient_base_word + {4'd0, coefficient_index_q};
-    assign physical_result_commit_now = result_commit_q && !soft_reset_request_now && !rst_i;
+    // Keep the controller's commit decision aligned with the bus's physical
+    // result_mem_we guard. Reset cancellation is not an internal fault; an
+    // invalid non-reset address is a failed physical commit and must stop the
+    // run without advancing RESULT_COUNT.
+    assign result_commit_address_valid_now =
+        (result_commit_addr_q[31:12] == 20'h00022) &&
+        (result_commit_addr_q[1:0] == 2'b00);
+    assign result_commit_reset_cancelled_now = result_commit_q &&
+                                               (soft_reset_request_now || rst_i);
+    assign physical_result_commit_now = result_commit_q &&
+                                        result_commit_address_valid_now &&
+                                        !result_commit_reset_cancelled_now;
+    assign result_commit_guard_fault_now = result_commit_q &&
+                                           !result_commit_reset_cancelled_now &&
+                                           !result_commit_address_valid_now;
 
     assign req_accept_now = req_valid_i && req_ready_o;
 
@@ -397,11 +414,13 @@ module fir_seq_accel #(
     assign invalid_start_request_now = start_request_now && !busy_q && !error_sticky_q &&
                                        (!config_valid || (req_wdata_i[3:2] == 2'b11));
     assign internal_fault_event_now = bram_range_fault ||
-                                      (selector_out_valid && selector_out_error);
+                                      result_commit_guard_fault_now ||
+                                       (selector_out_valid && selector_out_error);
     // bram_range_fault is a persistent BRAM-side status output. It contributes
     // to internal-fault handling while high, but contributes to debug metadata
     // only on the first edge on which the fault is observed.
-    assign bram_fault_event_now = bram_range_fault && !bram_fault_seen_q;
+    assign bram_fault_event_now = (bram_range_fault && !bram_fault_seen_q) ||
+                                  result_commit_guard_fault_now;
     assign invalid_config_event_now = invalid_start_request_now;
 
     always_comb begin
@@ -538,7 +557,9 @@ module fir_seq_accel #(
 
         if (bram_fault_event_now) begin
             debug_event_valid[DBG_BRAM_FAULT] = 1'b1;
-            debug_event_addr_candidate[DBG_BRAM_FAULT] = input_ptr_active_q;
+            debug_event_addr_candidate[DBG_BRAM_FAULT] = result_commit_guard_fault_now ?
+                                                         result_commit_addr_q :
+                                                         input_ptr_active_q;
             debug_event_info_candidate[DBG_BRAM_FAULT] = make_debug_info(
                 3'd6, DBG_DIR_INTERNAL, DBG_MASTER_INTERNAL);
         end
@@ -624,7 +645,9 @@ module fir_seq_accel #(
     assign prefetch_addr = 5'd0;
     assign selector_in_valid = (exec_state_q == EXEC_SELECTOR_SUBMIT) &&
                                busy_q && pending_valid_q;
-    assign selector_out_ready = 1'b1; // result is committed immediately when valid
+     // Capture the output into a registered commit request; the bus performs
+     // the physical result-memory write on the following edge.
+     assign selector_out_ready = 1'b1;
 
     fir_arch_selector #(
         .LANES(LANES)

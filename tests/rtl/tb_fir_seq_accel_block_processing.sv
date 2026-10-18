@@ -882,6 +882,64 @@ module tb_fir_seq_accel_block_processing #(
         end
     endtask
 
+    // Drive an invalid address through the controller's real registered
+    // result-commit signal while retaining its real valid/data handshake. The
+    // bus's physical result_mem_we guard must reject the write, and the
+    // controller must classify that rejection as an unrecoverable internal
+    // commit fault rather than a successful result.
+    task automatic invalid_commit_guard_case(input integer architecture);
+        integer waited, k;
+        logic [31:0] rd;
+        logic err;
+        begin
+            new_case($sformatf("invalid physical commit guard arch=%0d", architecture),
+                     4, 3, architecture, 0, 1'b1);
+            initialize_memories();
+            configure_run();
+            for (k = 0; k < 1024; k = k + 1)
+                memory_before[k] = dut.result_mem[k];
+            arm_trace();
+            csr_write(CTRL, (32'(cfg_arch) << 2) | 32'd1, 1'b0);
+            waited = 0;
+            while (dut.result_commit !== 1'b1 && waited < RUN_BOUND && busy === 1'b1) begin
+                @(negedge clk);
+                waited = waited + 1;
+            end
+            check(dut.result_commit === 1'b1, COMMIT,
+                  "invalid-guard precondition did not produce a pending result commit");
+
+            // The generic valid-run observer would correctly flag this
+            // intentionally rejected commit as an invalid/extra write. Turn
+            // only that observer off after the real output and commit request
+            // have been produced; the explicit checks below remain active.
+            watch_run = 1'b0;
+            snapshot_live = 1'b0;
+            force dut.u_accel.result_commit_addr_q = 32'h0002_3000;
+            @(posedge clk);
+            check(dut.result_commit === 1'b1 && dut.result_mem_we === 1'b0,
+                  COMMIT, "physical result guard accepted an invalid-page write");
+            #1;
+            release dut.u_accel.result_commit_addr_q;
+
+            check(busy === 1'b0 && done === 1'b0 && error_status === 1'b1,
+                  VALIDITY, "invalid physical commit did not terminate as an internal fault");
+            csr_expect(STATUS, 32'h0000_0004, VALIDITY);
+            csr_expect(RESULT_COUNT, 32'd0, COMMIT);
+            csr_expect(DBG_STATUS, 32'h0000_0040, COMMIT);
+            for (k = 0; k < cfg_m; k = k + 1)
+                check(dut.result_mem[result_word+k] === memory_before[result_word+k], COMMIT,
+                      $sformatf("invalid physical commit changed result word %0d", k));
+            csr_write(STATUS, 32'h0000_0004, 1'b0);
+            csr_expect(STATUS, 32'h0000_0004, VALIDITY);
+            csr_write(CTRL, 32'd2, 1'b0);
+            csr_expect(STATUS, 32'd0, RESET);
+            csr_expect(RESULT_COUNT, 32'd0, RESET);
+            bus_xfer(1'b0, CSR_BASE + {20'd0, CYCLES_TOTAL}, 32'd0, rd, err);
+            check(!err && rd == 0, RESET,
+                  "CTRL.RESET did not clear timing state after invalid physical commit");
+        end
+    endtask
+
     // Real-interface reset/write race coverage, with NO force or mocked write.
     // Measure an identical no-stall run, then schedule a host CTRL.RESET so
     // the bus forwards it on the measured output or physical-write edge.
@@ -986,6 +1044,7 @@ module tb_fir_seq_accel_block_processing #(
             reset_pending_case(arch, 1'b1, 1);
             scheduled_commit_reset_cases(arch);
             partial_internal_fault_case(arch);
+            invalid_commit_guard_case(arch);
         end
         for (k = 0; k < 3; k = k + 1) invalid_case(k);
 
