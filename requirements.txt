@@ -1,0 +1,2 @@
+# NEXUS-32 uses only the Python 3.12 standard library.
+# This manifest is intentionally empty of third-party packages.

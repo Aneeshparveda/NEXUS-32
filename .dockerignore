@@ -1,0 +1,21 @@
+# Keep .git in the build context because the existing verification-closure
+# runner records the branch and source revision in its reproducibility log.
+
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+
+# Recreate generated products during image setup/test rather than copying host
+# state into the image.
+build/
+results/
+firmware/*.hex
+vendor/picorv32/
+
+# Local editor and tool output.
+*.swp
+*.swo
+*.jou
+*.log
+obj_dir/

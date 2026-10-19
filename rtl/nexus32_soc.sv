@@ -15,7 +15,9 @@ module nexus32_soc #(
     output logic cpu_bus_fault_o,
     output logic accelerator_busy_o,
     output logic accelerator_done_o,
-    output logic accelerator_error_o
+    output logic accelerator_error_o,
+    output logic firmware_booted_o,
+    output logic firmware_pass_o
 );
     generate
         if (LANES != 4 && LANES != 8 && LANES != 16 && LANES != 32) begin : gen_illegal_lanes
@@ -33,6 +35,8 @@ module nexus32_soc #(
 
     localparam logic [17:0] IMEM_PAGE = 18'h00000; // 0x0000-0x3fff
     localparam logic [17:0] DMEM_PAGE = 18'h00004; // 0x10000-0x13fff
+    localparam logic [31:0] FIRMWARE_BOOT_SIGNATURE = 32'h4e58_3332;
+    localparam logic [31:0] FIRMWARE_PASS_SIGNATURE = 32'h600d_600d;
 
     logic [31:0] imem [0:IMEM_WORDS-1];
     logic [31:0] dmem [0:DMEM_WORDS-1];
@@ -107,6 +111,8 @@ module nexus32_soc #(
             bridge_state_q <= ST_IDLE;
             local_rdata_q <= 32'd0;
             local_fault_sticky_q <= 1'b0;
+            firmware_booted_o <= 1'b0;
+            firmware_pass_o <= 1'b0;
         end else begin
             case (bridge_state_q)
                 ST_IDLE: begin
@@ -135,6 +141,18 @@ module nexus32_soc #(
                                         dmem[cpu_mem_addr[13:2]][8*byte_lane +: 8] <=
                                             cpu_mem_wdata[8*byte_lane +: 8];
                                     end
+                                end
+                                // Capture the firmware's existing DMEM signatures
+                                // as sticky board-visible status.  The firmware
+                                // uses full-word stores, so no extra RAM read port
+                                // is needed for these indicators.
+                                if (cpu_mem_wstrb == 4'b1111) begin
+                                    if ((cpu_mem_addr[13:2] == 12'd0) &&
+                                        (cpu_mem_wdata == FIRMWARE_BOOT_SIGNATURE))
+                                        firmware_booted_o <= 1'b1;
+                                    if ((cpu_mem_addr[13:2] == 12'd2) &&
+                                        (cpu_mem_wdata == FIRMWARE_PASS_SIGNATURE))
+                                        firmware_pass_o <= 1'b1;
                                 end
                                 local_rdata_q <= 32'd0;
                             end else begin
