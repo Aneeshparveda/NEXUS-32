@@ -177,7 +177,37 @@ bash scripts/run_verification_closure.sh
 
 The Python command checks the signed Q16.16 reference behavior, saturation boundaries, negative arithmetic shift behavior, tap-count validation, and block-model cases. The RTL smoke command runs the arithmetic primitives, sequential engine, synchronous source, tap BRAM, accelerator shell, architecture integration, bus, SoC, invalid-fetch, backpressure, and reset-recovery simulations when their prerequisites are present. The SoC smoke command repeats the bus/SoC suites for `LANES=4, 8, 16, 32`.
 
-The verification-closure command runs the independent 1024-sample block/timing scoreboard and the direct pipelined-latency experiment for `LANES=4, 8, 16, 32`. Its generated binaries and logs are written under ignored `results/verification-closure/`; the durable results summary is [`docs/VERIFICATION_CLOSURE.md`](docs/VERIFICATION_CLOSURE.md).
+The verification-closure command is the canonical pure-RTL gate. It runs the independent 1024-sample block/timing scoreboard, direct pipelined-latency experiments, the 75-case block-processing acceptance suite for `LANES=4, 8, 16, 32`, and the fixed-`LANES=32` block-configuration and configuration-stage acceptance benches. Its generated binaries, per-test status report and logs are written under ignored `results/verification-closure/`; the durable results summary and reproduction details are in [`docs/VERIFICATION_CLOSURE.md`](docs/VERIFICATION_CLOSURE.md). Missing mandatory tools or tests and any compile/simulation failure produce a nonzero gate exit.
+
+## GitHub Actions CI
+
+`.github/workflows/nexus32-ci.yml` runs on pushes and pull requests targeting
+`main`, and can also be started manually. On `ubuntu-24.04` it installs
+Icarus/VVP, Verilator, the `riscv64-unknown-elf` compiler/binutils, and
+provisions the pinned PicoRV32 revision before running the Python, toolchain,
+RTL smoke, four-lane SoC smoke, and complete verification-closure checks.
+Verilator uses `--Wall --Wno-fatal`: warnings remain visible in the log and
+uploaded artifact, while Verilator errors still fail the job.
+
+The principal CI sequence can be reproduced locally after installing the same
+tools with:
+
+```bash
+export RISCV_CC=riscv64-unknown-elf-gcc
+export RISCV_OBJCOPY=riscv64-unknown-elf-objcopy
+bash scripts/vendor_picorv32.sh
+bash scripts/build_smoke_firmware.sh
+python3 -m unittest discover -s tests -v
+bash scripts/check_toolchain.sh
+bash scripts/run_rtl_smoke.sh
+bash scripts/run_soc_smoke.sh all
+bash scripts/run_verification_closure.sh
+```
+
+CI retains the compact closure status, commands, per-test logs, and Verilator
+lint log as workflow artifacts. Passing CI is simulation and toolchain
+evidence only; it does not perform Vivado synthesis, timing closure, bitstream
+generation, board programming, or physical Basys 3 validation.
 
 Passing these commands means that the exercised reference and RTL simulations completed successfully in the selected simulator/toolchain. It does **not** mean that the design has passed FPGA synthesis, timing closure, implementation, bitstream generation, board programming, power/resource characterization, or physical Basys 3 testing.
 
