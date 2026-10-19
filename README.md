@@ -133,17 +133,20 @@ These remain deliberate, documented limitations; the closure above is not a clai
 - The direct pipelined engine's no-stall transfer-edge latency is measured in the closure report; its nominal `cycles_o` field and the measured transfer latency are intentionally distinct. Backpressure stability is checked, but stalled elapsed latency is not a standalone performance claim.
 - Selector/SoC measurements include wrapper and serialization overhead and must not be presented as standalone architecture throughput or PPA results.
 - UART/GPIO/timer/IRQ/debug-monitor integration and a full SoC bus fabric remain outside the current implementation.
-- Vivado synthesis, timing closure, PPA/resource analysis, bitstream validation, board programming, and physical Basys 3 validation have not been completed.
+- The Basys 3 wrapper, official pin constraints, and integrated Vivado build flow are source-integrated, but Vivado synthesis, timing closure, PPA/resource analysis, bitstream validation, board programming, and physical Basys 3 validation have not been completed in this environment.
 
 ## Repository layout
 
 ```text
 golden_model/   Bit-exact Python reference model
 rtl/            FIR engines, BRAM, accelerator shell, bus adapter, and SoC
+constraints/    Board-specific XDC constraints
 firmware/       Bare-metal RV32I assembly and linker/image sources
 tests/          Python reference tests and directed RTL/SoC testbenches
 scripts/        Firmware, vendor-source, simulation, and characterization flows
 vendor/         Pinned PicoRV32 source after provisioning
+Makefile        Canonical offline test gate and networked setup target
+Dockerfile      Ubuntu 24.04 reproducibility image definition
 results/        Generated simulation outputs; do not commit large build artifacts
 build/          Generated firmware/build outputs
 docs/           Contract, integration notes, status, and provenance
@@ -151,31 +154,176 @@ docs/           Contract, integration notes, status, and provenance
 
 The PicoRV32 provisioning script pins upstream revision `ef203c2b0a3fb793280f5114941416c425c5b461`; see [`docs/PICORV32_PIN.md`](docs/PICORV32_PIN.md).
 
-## Setup and firmware prerequisites
+## Reproducible setup and offline test
 
-The Python reference tests use the standard library only. RTL simulation requires Icarus Verilog; lint checks can use Verilator. SoC simulations also require the pinned PicoRV32 source and an RV32I cross-compiler for firmware generation.
+The Python runtime marker is `.python-version` (`3.12.3`). The Python reference
+model and utility scripts use only the standard library; `requirements.txt` is
+the empty dependency manifest and `requirements.lock` records that there are
+no third-party packages to install.
 
-From the repository root:
+For a host installation, provide Bash, GNU Make, Python 3.12.3, Git, Tcl
+(`tclsh`), Icarus Verilog (`iverilog` and `vvp`), Verilator, `file`, and one
+complete RISC-V RV32I toolchain pair. The Makefile selects `riscv64-elf-gcc` with
+`riscv64-elf-objcopy` first, then `riscv64-unknown-elf-gcc` with
+`riscv64-unknown-elf-objcopy`. `RISCV_CC` and `RISCV_OBJCOPY` can be set to
+explicit executable names or paths when a toolchain is installed elsewhere.
+
+Run setup once from the repository root on a networked machine:
 
 ```bash
-bash scripts/vendor_picorv32.sh
-bash scripts/build_smoke_firmware.sh
+make setup
 ```
 
-`bash scripts/run_soc_smoke.sh all` rebuilds the smoke, multi-architecture, and invalid-fetch firmware images before running its lane sweep. `bash scripts/run_rtl_smoke.sh` runs the SoC portions when the vendored CPU and smoke image are present.
+`make setup` runs the pinned PicoRV32 provisioning script and prepares the
+smoke, multi-architecture, and invalid-fetch firmware images. The checkout is
+verified against revision
+`ef203c2b0a3fb793280f5114941416c425c5b461`. It is the only project target
+that performs the network-dependent provisioning step.
+
+After setup, the canonical regression is offline and does not invoke the
+vendor script:
+
+```bash
+make test
+```
+
+Before running any checks, `make test` requires
+`vendor/picorv32/picorv32.v`, its matching `REVISION.txt`, and
+`firmware/nexus32_smoke.hex`. If the pinned vendor source is absent or
+unverified, it fails with a message directing you to `make setup` instead of
+silently skipping the SoC checks. The gate then runs, in order, the Python
+unit suite, RISC-V toolchain smoke check, RTL smoke regression, all-lane SoC
+smoke regression, Basys 3 wrapper/XDC consistency check, the offline
+Vivado-flow stub, Verilator lint, and the complete verification-closure gate.
+The flow stub verifies that the success path creates the expected summaries
+and that an injected mandatory-stage failure returns exit code 1 while
+skipping later stages; it does not replace Vivado synthesis or timing
+analysis.
+
+The individual underlying commands remain available for focused debugging:
+
+```bash
+python3 -m unittest discover -s tests -v
+bash scripts/check_toolchain.sh
+bash scripts/run_rtl_smoke.sh
+bash scripts/run_soc_smoke.sh all
+python3 scripts/check_basys3_constraints.py
+bash scripts/test_basys3_flow_stub.sh
+bash scripts/run_verification_closure.sh
+```
+
+## Docker reproducibility
+
+`Dockerfile` is based on Ubuntu 24.04 and installs the simulator, Verilator,
+RISC-V compiler/binutils, Python, Git, Make, and required command-line tools
+inside the image. The image build runs `make setup`, so the build needs network
+access for the pinned PicoRV32 checkout. Once built, the default container
+command is the offline regression:
+
+```bash
+docker build -t nexus32:ubuntu-24.04 .
+docker run --rm nexus32:ubuntu-24.04
+```
+
+To pass the command explicitly, use:
+
+```bash
+docker run --rm nexus32:ubuntu-24.04 make test
+```
+
+Generated host build/results directories, generated firmware images, and any
+local vendored checkout are excluded by `.dockerignore`; the image recreates
+them through `make setup`.
+
+## Basys 3 integration and FPGA build
+
+The board-level candidate is `rtl/top_basys3.sv`, targeting the Digilent Basys
+3 rev-B board (`xc7a35tcpg236-1`) with `LANES=16` by default. It connects the
+100 MHz oscillator, center pushbutton, and four status LEDs. The LEDs report
+firmware boot, accelerator busy, accelerator completion/firmware pass, and
+trap or sticky-fault status; they are not a free-running heartbeat. The center
+button is active-high and is converted to the SoC's active-high synchronous
+reset with asynchronous assertion and two-clock synchronized release.
+
+The official Digilent Basys-3 master XDC is represented by
+`constraints/basys3.xdc`: clock `W5`, center button `U18`, and LEDs `U16`,
+`E19`, `U19`, and `V19`, all using `LVCMOS33`. Check the wrapper/XDC port
+consistency without Vivado with:
+
+```bash
+python3 scripts/check_basys3_constraints.py
+```
+
+The deterministic integrated Vivado flow builds the existing smoke firmware,
+uses the pinned PicoRV32 source, loads the generated instruction image through
+the SoC's synthesizable `$readmemh` initialization, and runs synthesis,
+implementation, reports, and bitstream generation:
+
+```bash
+vivado -mode batch -nojournal -nolog \
+  -source vivado/build_basys3.tcl \
+  -tclargs results/vivado/basys3 16
+```
+
+The first argument is an output directory and the second is the lane count
+(`4`, `8`, `16`, or `32`). The flow selects `RISCV_CC` and `RISCV_OBJCOPY`
+explicitly when set, otherwise it tries the `riscv64-elf-*` and then
+`riscv64-unknown-elf-*` tool names. If the pinned PicoRV32 checkout is absent,
+the flow invokes `scripts/vendor_picorv32.sh`; that provisioning step requires
+network access. Build summaries and generated Vivado reports are written under
+the ignored output directory, including `build_summary.tsv` and
+`build_summary.md`. A successful exit requires all mandatory stages through
+bitstream generation to pass. This command has not produced Vivado evidence on
+the current machine because Vivado is not installed.
+
+## FPGA deployment and physical validation
+
+After a successful Vivado build, the bitstream is
+`results/vivado/basys3/top_basys3.bit`. The deployment procedure is:
+
+1. Connect and power a Digilent Basys 3 rev-B board over USB.
+2. Open Vivado Hardware Manager, open the hardware target, and select the
+   board's FPGA device.
+3. Program the device with `top_basys3.bit`.
+4. Release the center button. Confirm `led[0]` reports firmware boot,
+   `led[2]` reports accelerator completion/firmware PASS, and `led[3]` stays
+   low (no trap, bus fault, or accelerator error). `led[1]` may indicate the
+   accelerator busy interval.
+5. Record the programmed bitstream identity, observed LED behavior, board
+   revision, and any failures alongside the Vivado reports.
+
+Vivado, a Basys 3 board, and hardware-programming access are unavailable in
+the current environment. Therefore the repository currently has no Vivado
+synthesis, implementation/timing, bitstream-programming, or physical
+validation result; `make test` establishes simulation and source-level checks
+only. Perform the deployment steps above only after the integrated Vivado
+flow completes successfully on a machine with the licensed tool and hardware.
 
 ## Verification commands
 
 These are the project-level verification commands currently available:
 
 ```bash
+make test
 python3 -m unittest discover -s tests -v
+bash scripts/check_toolchain.sh
 bash scripts/run_rtl_smoke.sh
 bash scripts/run_soc_smoke.sh all
+python3 scripts/check_basys3_constraints.py
 bash scripts/run_verification_closure.sh
 ```
 
-The Python command checks the signed Q16.16 reference behavior, saturation boundaries, negative arithmetic shift behavior, tap-count validation, and block-model cases. The RTL smoke command runs the arithmetic primitives, sequential engine, synchronous source, tap BRAM, accelerator shell, architecture integration, bus, SoC, invalid-fetch, backpressure, and reset-recovery simulations when their prerequisites are present. The SoC smoke command repeats the bus/SoC suites for `LANES=4, 8, 16, 32`.
+`make test` is the canonical offline entry point for this complete sequence.
+The Python command checks the signed Q16.16 reference behavior, saturation
+boundaries, negative arithmetic shift behavior, tap-count validation, and
+block-model cases. The RTL smoke command runs the arithmetic primitives,
+sequential engine, synchronous source, tap BRAM, accelerator shell,
+architecture integration, bus, SoC, invalid-fetch, backpressure, and
+reset-recovery simulations when their prerequisites are present. The SoC
+smoke command repeats the bus/SoC suites for `LANES=4, 8, 16, 32`. The
+Makefile adds the Basys 3 XDC check and the same `--Wall --Wno-fatal`
+Verilator lint configuration used by CI before invoking the verification
+closure gate.
 
 The verification-closure command is the canonical pure-RTL gate. It runs the independent 1024-sample block/timing scoreboard, direct pipelined-latency experiments, the 75-case block-processing acceptance suite for `LANES=4, 8, 16, 32`, and the fixed-`LANES=32` block-configuration and configuration-stage acceptance benches. Its generated binaries, per-test status report and logs are written under ignored `results/verification-closure/`; the durable results summary and reproduction details are in [`docs/VERIFICATION_CLOSURE.md`](docs/VERIFICATION_CLOSURE.md). Missing mandatory tools or tests and any compile/simulation failure produce a nonzero gate exit.
 

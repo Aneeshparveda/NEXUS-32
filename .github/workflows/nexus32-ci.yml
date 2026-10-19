@@ -87,16 +87,19 @@ jobs:
       - name: Run SoC smoke regression across LANES 4, 8, 16, and 32
         run: bash scripts/run_soc_smoke.sh all
 
+      - name: Check Basys-3 wrapper and XDC port consistency
+        run: python3 scripts/check_basys3_constraints.py
+
       - name: Run Verilator lint with documented warning baseline
         run: |
           set -euo pipefail
           mkdir -p results/verification-closure
-          verilator --lint-only --Wall --Wno-fatal --top-module nexus32_soc \
+          verilator --lint-only --Wall --Wno-fatal --top-module top_basys3 \
             vendor/picorv32/picorv32.v \
             rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
             rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
             rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-            rtl/nexus32_soc.sv \
+            rtl/nexus32_soc.sv rtl/top_basys3.sv \
             2>&1 | tee results/verification-closure/verilator-lint.log
 
       - name: Run complete verification closure gate
