@@ -1,0 +1,118 @@
+name: NEXUS-32 CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexus32-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: Ubuntu simulation and toolchain regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RISCV_CC: riscv64-unknown-elf-gcc
+      RISCV_OBJCOPY: riscv64-unknown-elf-objcopy
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Linux simulation and RISC-V dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            binutils-riscv64-unknown-elf \
+            file \
+            gcc-riscv64-unknown-elf \
+            git \
+            iverilog \
+            verilator
+
+      - name: Record CI tool versions
+        run: |
+          set -euo pipefail
+          printf '%s\n' '--- host ---'
+          uname -a
+          git --version
+          printf '%s\n' '--- Python ---'
+          python3 --version
+          printf '%s\n' '--- Icarus/VVP ---'
+          iverilog -V 2>&1 || true
+          vvp -V 2>&1 || true
+          printf '%s\n' '--- RISC-V toolchain ---'
+          command -v "$RISCV_CC"
+          command -v "$RISCV_OBJCOPY"
+          command -v riscv64-unknown-elf-readelf
+          "$RISCV_CC" --version
+          "$RISCV_OBJCOPY" --version
+          riscv64-unknown-elf-readelf --version
+          printf '%s\n' '--- Verilator ---'
+          verilator --version
+
+      - name: Provision pinned PicoRV32 and base firmware image
+        run: |
+          set -euo pipefail
+          bash scripts/vendor_picorv32.sh
+          bash scripts/build_smoke_firmware.sh
+          test -f vendor/picorv32/picorv32.v
+          test -f firmware/nexus32_smoke.hex
+
+      - name: Run Python golden-model tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Validate RISC-V RV32I toolchain
+        run: bash scripts/check_toolchain.sh
+
+      - name: Run RTL smoke regression
+        run: bash scripts/run_rtl_smoke.sh
+
+      - name: Run SoC smoke regression across LANES 4, 8, 16, and 32
+        run: bash scripts/run_soc_smoke.sh all
+
+      - name: Run Verilator lint with documented warning baseline
+        run: |
+          set -euo pipefail
+          mkdir -p results/verification-closure
+          verilator --lint-only --Wall --Wno-fatal --top-module nexus32_soc \
+            vendor/picorv32/picorv32.v \
+            rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
+            rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
+            rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
+            rtl/nexus32_soc.sv \
+            2>&1 | tee results/verification-closure/verilator-lint.log
+
+      - name: Run complete verification closure gate
+        run: bash scripts/run_verification_closure.sh
+
+      - name: Upload compact verification diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus32-verification-logs-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            results/verification-closure/verification-closure.log
+            results/verification-closure/commands.txt
+            results/verification-closure/status.tsv
+            results/verification-closure/verilator-lint.log
+            results/verification-closure/*.compile.log
+            results/verification-closure/*.run.log

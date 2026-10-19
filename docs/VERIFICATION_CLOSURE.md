@@ -147,6 +147,53 @@ sampled before NBA. The post-NBA visible value matches the nominal
 `TREE_LEVELS+2`; it must not be confused with nominal pipeline depth or with
 elapsed latency under output backpressure.
 
+## Canonical verification gate
+
+`bash scripts/run_verification_closure.sh` is the canonical closure gate for
+the pure-RTL verification in this repository. It requires `iverilog` and
+`vvp`; it does not require the vendored PicoRV32 source or an RISC-V compiler.
+The separate `run_rtl_smoke.sh` and `run_soc_smoke.sh all` regressions retain
+their existing PicoRV32 and firmware prerequisites.
+
+The gate runs the following required test families:
+
+| Family | Required configurations | Top-level testbench | Source/dependency note |
+|---|---|---|---|
+| Full 1024-sample block/timing | `LANES=4, 8, 16, 32` | `tb_fir_seq_accel_block_1024` | Integrated accelerator bus and RTL sources; no vendor CPU |
+| Direct pipelined latency | `LANES=4, 8, 16, 32` | `tb_fir_pipelined_latency` | Direct pipeline RTL sources; no vendor CPU |
+| Block-processing acceptance | `LANES=4, 8, 16, 32` | `tb_fir_seq_accel_block_processing` | Integrated accelerator bus and RTL sources; no vendor CPU |
+| Block-configuration acceptance | Fixed `LANES=32` localparam | `tb_fir_seq_accel_block_config` | Direct accelerator RTL sources; the bench does not expose a parameter sweep |
+| Configuration-stage acceptance | Fixed `LANES=32` localparam | `tb_fir_seq_accel_config_stage` | Direct accelerator RTL sources; the bench does not expose a parameter sweep |
+
+The block-processing acceptance command pattern is:
+
+```bash
+iverilog -g2012 -Wall \
+  -s tb_fir_seq_accel_block_processing \
+  -Ptb_fir_seq_accel_block_processing.LANES=32 \
+  -o results/verification-closure/tb_fir_seq_accel_block_processing_l32.vvp \
+  rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
+  rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv \
+  rtl/fir_arch_selector.sv rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv \
+  rtl/nexus32_accel_bus.sv \
+  tests/rtl/tb_fir_seq_accel_block_processing.sv
+vvp results/verification-closure/tb_fir_seq_accel_block_processing_l32.vvp
+```
+
+The same command is run independently with `LANES=4`, `8`, and `16`. The two
+fixed-configuration acceptance benches use the same accelerator RTL source
+list without a `-P` override because each declares `localparam int LANES=32`.
+
+Each required test is recorded in
+`results/verification-closure/status.tsv` as `PASS`, `FAIL`, or `NOT_RUN`.
+Compilation failure, simulation failure, a missing required source, or a
+missing mandatory simulator increments the gate failure count. The runner
+continues to report the remaining tests where possible and exits nonzero if
+any required test is `FAIL` or `NOT_RUN`; it never treats a missing mandatory
+test as a successful closure. Per-test compile and simulation logs, generated
+VVP files, and the exact command list remain under the ignored
+`results/verification-closure/` directory.
+
 ## Commands and reported outcomes
 
 The following commands were run in the verification session and reported
@@ -164,21 +211,29 @@ Observed outcomes:
 - Python reference suite: 14 tests passed.
 - RTL smoke: passed.
 - SoC smoke: passed across the supported `LANES=4, 8, 16, 32` sweep.
-- Verification closure: all four block scoreboards and all four direct
-  pipeline experiments passed; every summary reported zero functional,
-  counter/latency, and harness failures.
+- Verification closure: all four 1024-sample block scoreboards, all four
+  direct pipeline experiments, all four block-processing acceptance runs, the
+  fixed-LANES block-configuration acceptance run, and the fixed-LANES
+  configuration-stage acceptance run passed; every summary reported zero
+  functional, counter/latency, contract, or harness failures.
 - `git diff --check` and `bash -n scripts/run_verification_closure.sh` also
   passed during the closure work.
 
-The closure script is the reproducible entry point for the detailed matrices:
+The closure script is the reproducible entry point for the complete pure-RTL
+gate and detailed matrices:
 
 ```bash
 bash scripts/run_verification_closure.sh
 ```
 
 It records the branch, source revision, UTC timestamp, Icarus/VVP versions,
-compile commands, and machine-readable result lines before writing generated
-artifacts to `results/verification-closure/`.
+compile commands, per-test status, and machine-readable result lines before
+writing generated artifacts to `results/verification-closure/`. From a clean
+checkout with Icarus installed, reproduce the gate with exactly:
+
+```bash
+bash scripts/run_verification_closure.sh
+```
 
 ## Warnings and boundaries
 
