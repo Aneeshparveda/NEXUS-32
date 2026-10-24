@@ -44,6 +44,7 @@ jobs:
             gcc-riscv64-unknown-elf \
             git \
             iverilog \
+            tcl \
             verilator
 
       - name: Record CI tool versions
@@ -77,6 +78,12 @@ jobs:
           bash scripts/build_smoke_firmware.sh
           test -f vendor/picorv32/picorv32.v
           test -f firmware/nexus32_smoke.hex
+
+      - name: Run firmware latency regression
+        run: bash scripts/run_soc_latency.sh
+
+      - name: Run offline Vivado flow stub
+        run: bash scripts/test_basys3_flow_stub.sh
 
       - name: Run Python golden-model tests
         run: python3 -m unittest discover -s tests -v
@@ -114,6 +121,9 @@ jobs:
       - name: Run complete verification closure gate
         run: bash scripts/run_verification_closure.sh
 
+      - name: Run CPU bridge fault-data regression
+        run: make test-fault
+
       - name: Upload compact verification diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -128,3 +138,4 @@ jobs:
             results/verification-closure/verilator-lint.log
             results/verification-closure/*.compile.log
             results/verification-closure/*.run.log
+            results/verification-closure/stage4b-20261024/firmware-latency/*

@@ -722,31 +722,37 @@ from future AutoArch policy experiments.
 
 ## 11. Current implementation deviation table
 
-The following table was rechecked against base commit
-`a7faa1606718882ad8962600f07941c1738f51f8` before this document was written.
-Statuses describe the repository at that commit, not the desired V1.0 behavior.
+The following table was rechecked against commit
+`74f4f66eef483ea99569177e5781d8a91067862a` and the named repository evidence.
+`TEST-PROVEN` means that a named testbench and command directly exercise the
+row. `INSPECTION-ONLY` means that the current RTL/docs support the statement,
+but the cited tests do not directly prove the complete row. `OPEN` and
+`UNVERIFIED` remain available for incomplete behavior or missing evidence;
+these labels are not blanket verification claims.
 
 | Area | Status | Current evidence and contract impact |
 |---|---|---|
-| Protected memory reads while owned | **OPEN** | `rtl/nexus32_accel_bus.sv:162-167` drives host sample/coefficient reads without checking ownership; ownership is checked for writes at `:283-290`. The V1.0 protected-read sentinel and `MEM_OWNERSHIP` event are not implemented. |
-| Ownership violations affecting the active result | **OPEN** | `rtl/fir_seq_accel.sv:344-347` latches rejected writes as `ownership_fault_q`, and `:395-412` suppresses result commit and sets `ERROR`. V1.0 host ownership events must remain non-fatal to an otherwise valid active run. |
-| CPU bridge preserves errored read data | **OPEN** | `rtl/nexus32_soc.sv:90-99` returns zero when `accel_rsp_error` is asserted. V1.0 requires preserving `accel_rsp_rdata`, including `0xBAD0_0001`, while completing the CPU response and retaining the external sticky diagnostic. |
-| Debug registers and event classes | **OPEN** | The bus map at `rtl/nexus32_accel_bus.sv:12-18` and shell map at `rtl/fir_seq_accel.sv:81-89` expose no V1.0 debug CSRs. Unknown CSR offsets error at `rtl/fir_seq_accel.sv:480-494`. |
-| `SAMPLE_COUNT` meaning | **OPEN** | The current shell documents and implements `SAMPLE_COUNT` as successful result commits (`rtl/fir_seq_accel.sv:18,116,336,403-410`). V1.0 moves that meaning to configured block length and adds `RESULT_COUNT` for successful commits. |
-| Block processing and history | **OPEN** | `rtl/fir_seq_accel.sv:6,283-413` gathers one tap window and dispatches one operation. No block iterator, pending-sample register, accepted-input history, or multi-result validity sequence is implemented. |
-| Timing-counter definitions | **OPEN** | Current counters increment busy cycles and begin compute timing at a BRAM tap response (`rtl/fir_seq_accel.sv:357-363,395-402`), while standalone engines expose nominal or source-dependent fields. V1.0 requires transfer-edge event definitions and the run-level partial-span rule. |
-| START while BUSY | **OPEN** | The integrated shell rejects writes while busy and sets `rsp_error` (`rtl/fir_seq_accel.sv:423-435`), unlike the adopted V2.2/V1.0 START-while-BUSY no-op. |
-| Preflight versus internal fault separation | **OPEN** | The current `fatal_event_now` path combines ownership, busy-write, invalid-start, BRAM, and engine events (`rtl/fir_seq_accel.sv:249-252`); the current invalid-start path also returns `rsp_error=1` (`rtl/fir_seq_accel.sv:423-445`). V1.0 requires separate host, recoverable preflight, and RESET-only internal-fault behavior, with a normal bus completion for a well-formed invalid START. |
-| Reserved `AUTO_*`, version, and build registers | **OPEN** | The current CSR implementation ends at `0x20` (`rtl/fir_seq_accel.sv:81-89,484-495`). V1.0 reserves the documented later offsets with zero reads and explicit access errors on writes. |
-| Pipeline latency | **UNVERIFIED** | Current RTL declares `LATENCY=DEPTH+1` (`rtl/fir_pipelined_engine.sv:36-39`), but the testbench checks the reported field rather than the input-edge to output-transfer edge (`tests/rtl/tb_fir_pipelined_engine.sv:93-103`). The required lane sweep and waveform experiment in §9 has not been used to settle the V1.0 metadata. |
-| Vivado characterization | **UNVERIFIED** | The repository provides an OOC flow, but no run receipt is part of this commit. The flow explicitly excludes CPU, bus, BRAM gather, and arbitration (`vivado/README.md:50-54`). |
-| Physical hardware validation | **UNVERIFIED** | Repository status documentation records no Vivado implementation, timing closure, bitstream, board programming, or Basys 3 measurement (`docs/STATUS.md:39-45`; `docs/PICORV32_PIN.md:20-22`). |
+| Protected memory reads while owned | **TEST-PROVEN** | `tests/rtl/tb_nexus32_soc_protected_access.sv` directly drives PicoRV32 firmware through an owned sample read and checks `0xBAD0_0001`, the ownership event, the CPU-side fault, and preservation of the active result. The bus-level `tb_nexus32_accel_bus.sv` also checks the owned-read sentinel. Command: `bash scripts/run_rtl_smoke.sh`. Current RTL ownership/sentinel paths are in `rtl/nexus32_accel_bus.sv:187-223`. |
+| Ownership violations affecting the active result | **TEST-PROVEN** | `tests/rtl/tb_nexus32_soc_protected_access.sv` checks the CPU-driven protected result write while the accelerator owns the banks, then requires a successful result commit, unchanged result memory, and no accelerator `ERROR`. The direct `tests/rtl/tb_fir_seq_accel.sv` coverage also checks owned-write rejection without suppressing the active run. Command: `bash scripts/run_rtl_smoke.sh`. |
+| CPU bridge preserves errored read data | **TEST-PROVEN** | `tests/rtl/tb_nexus32_soc_protected_access.sv` checks that firmware reads `0xBAD0_0001` through the CPU bridge, while `tests/rtl/tb_nexus32_soc_fault_data.sv` directly checks `cpu_mem_rdata`, `accel_rsp_error`, sticky fault setting, and reset clearing. Commands: `bash scripts/run_rtl_smoke.sh` and `make test-fault`. Current bridge response preservation is in `rtl/nexus32_soc.sv:96-105,174-188`. |
+| Debug registers and event classes | **TEST-PROVEN** | `tests/rtl/tb_fir_seq_accel.sv` exercises `MEM_OWNERSHIP`, `CONFIG_WHILE_BUSY`, `BRAM_FAULT`, `BUS_UNMAPPED`, `ENGINE_ERROR`, metadata priority/ties, W1C, and RESET behavior; `tests/rtl/tb_nexus32_accel_bus.sv` exercises `INVALID_CONFIG`, `RESULT_WRITE_FORBIDDEN`, `BUS_ACCESS`, reserved accesses, and sticky-fault separation. Command: `bash scripts/run_rtl_smoke.sh`. The eight event classes and CSR offsets are defined in `rtl/fir_seq_accel.sv:90-120`, with status/metadata reads at `:966-975`. |
+| `SAMPLE_COUNT` meaning | **TEST-PROVEN** | `tests/rtl/tb_fir_seq_accel_block_1024.sv` and `tests/rtl/tb_fir_seq_accel_block_processing.sv` configure block length, count all input/output/commit events, compare `RESULT_COUNT` with the configured sample count, and distinguish it from `SAMPLE_COUNT`. Command: `bash scripts/run_verification_closure.sh`. Current register behavior is in `rtl/fir_seq_accel.sv:18-20,943-965`. |
+| Block processing and history | **TEST-PROVEN** | `tests/rtl/tb_fir_seq_accel_block_processing.sv` exercises the multi-result iterator, zero-history block starts, rolling history, pending-sample stalls, snapshot stability, reset flushing, and ordered physical commits across all three architectures and supported lane builds. Command: `bash scripts/run_verification_closure.sh`. |
+| Timing-counter definitions | **TEST-PROVEN** | `tests/rtl/tb_fir_seq_accel_block_1024.sv` and `tests/rtl/tb_fir_seq_accel_block_processing.sv` derive `CYCLES_TOTAL` from START-to-final-commit or START-to-error edges and `COMPUTE_CYCLES` from first input transfer to last output transfer, including partial-fault cases. Command: `bash scripts/run_verification_closure.sh`. |
+| START while BUSY | **TEST-PROVEN** | `tests/rtl/tb_fir_seq_accel_block_config.sv` and `tests/rtl/tb_fir_seq_accel_config_stage.sv` issue START while busy and check `rsp_error=0`, preserved BUSY/ownership, unchanged debug state, and normal continuation; other configuration writes remain rejected. Command: `bash scripts/run_verification_closure.sh`. Current decode is in `rtl/fir_seq_accel.sv:397-424`. |
+| Preflight versus internal fault separation | **TEST-PROVEN** | `tests/rtl/tb_fir_seq_accel_block_config.sv` and `tests/rtl/tb_fir_seq_accel_block_processing.sv` check well-formed invalid START completion with `rsp_error=0`, no ownership or memory access, `INVALID_CONFIG`, and zero counters; the same suites inject BRAM/commit faults and check ERROR termination, partial validity, and RESET-only recovery. Command: `bash scripts/run_verification_closure.sh`. |
+| Reserved `AUTO_*`, version, and build registers | **INSPECTION-ONLY** | Current RTL defines `AUTO_CFG`, `AUTO_SELECTED`, `AUTO_MODEL_ID`, `CONTRACT_VERSION`, and `BUILD_ID`, returns zero on reads, and routes unsupported writes to the error path (`rtl/fir_seq_accel.sv:90-105,950-975`). `tests/rtl/tb_nexus32_accel_bus.sv` directly checks `AUTO_CFG` and an unlisted CSR, but does not directly exercise every reserved offset, so the complete row is not test-proven. Command for the partial coverage: `bash scripts/run_rtl_smoke.sh`. |
+| Pipeline latency | **TEST-PROVEN** | `tests/rtl/tb_fir_pipelined_latency.sv` measures the direct engine at LANES 4, 8, 16, and 32, including fill, steady state, drain, output backpressure, output stability, and input-edge to output-transfer-edge latency. Command: `bash scripts/run_verification_closure.sh`. The measured transfer-edge convention is documented in `docs/VERIFICATION_CLOSURE.md:127-148`. |
+| Vivado characterization | **UNVERIFIED** | The repository provides an OOC flow, but no Vivado run receipt is present. The flow explicitly excludes CPU, bus, BRAM gather, and arbitration (`vivado/README.md:79-118`). `docs/STATUS.md:49` records that no real Vivado synthesis, implementation timing, utilization, DRC, or bitstream generation has been run. |
+| Physical hardware validation | **UNVERIFIED** | No bitstream programming, physical Basys 3 observation, or board measurement is recorded. `docs/STATUS.md:49` and `docs/PICORV32_PIN.md:22` retain the boundary that FPGA implementation and physical behavior remain unverified. |
 
-The current base also has a known provenance limitation in its status notes:
-earlier user-reported smoke results and the later architecture-integration
-"awaiting validation" status coexist.  This contract does not convert either
-statement into new evidence; implementation and characterization claims require
-fresh, reproducible receipts.
+The current implementation evidence is therefore mixed: rows marked
+`TEST-PROVEN` have a named direct simulation command, `INSPECTION-ONLY` rows
+are supported by current RTL or partial coverage without complete direct proof,
+and the Vivado/physical rows remain `UNVERIFIED`. This contract does not
+convert inspection or simulation into Vivado, timing, bitstream, or board
+evidence; implementation and characterization claims still require fresh,
+reproducible receipts.
 
 ## 12. Milestone 0 acceptance checklist
 

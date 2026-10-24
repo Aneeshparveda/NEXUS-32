@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use NEXUS-32, please cite this repository."
+title: "NEXUS-32 — PicoRV32 FIR SoC"
+type: software
+authors:
+  - given-names: Aneesh
+    family-names: Parveda
+repository-code: "https://github.com/Aneeshparveda/NEXUS-32"
+license: MIT
+date-released: 2026-10-25
+keywords:
+  - RISC-V
+  - PicoRV32
+  - FIR
+  - FPGA
+  - SystemVerilog
+references:
+  - type: software
+    title: PicoRV32
+    repository-code: "https://github.com/YosysHQ/picorv32"
+    license: ISC
+    notes: >-
+      Provisioned at setup from pinned commit
+      ef203c2b0a3fb793280f5114941416c425c5b461. The source is a generated
+      local dependency and is not distributed by this repository.

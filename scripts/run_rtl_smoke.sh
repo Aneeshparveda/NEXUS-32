@@ -59,6 +59,12 @@ iverilog -g2012 -Wall -s tb_fir_accel_architectures \
   tests/rtl/tb_fir_accel_architectures.sv
 vvp results/rtl/tb_fir_accel_architectures.vvp
 
+# Reach the existing lane-sweep benches through the canonical RTL smoke path;
+# each script remains the source of its own compile list and output naming.
+bash scripts/run_selector_smoke.sh all
+bash scripts/run_parallel_smoke.sh all
+bash scripts/run_pipelined_smoke.sh all
+
 iverilog -g2012 -Wall -s tb_nexus32_accel_bus \
   -o results/rtl/tb_nexus32_accel_bus.vvp \
   rtl/fir_q16_mac.sv \

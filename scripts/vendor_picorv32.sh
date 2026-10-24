@@ -3,13 +3,40 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO_URL="https://github.com/YosysHQ/picorv32.git"
 PINNED_COMMIT="ef203c2b0a3fb793280f5114941416c425c5b461"
+# SHA-256 of picorv32.v obtained from the checkout at PINNED_COMMIT.
+PINNED_SOURCE_SHA256="0836050971b3c6cdd28ac3b1e5719a67fb645161912bef1e472e63995ceb0622"
 DEST="vendor/picorv32"
-if [[ -f "$DEST/picorv32.v" && -f "$DEST/REVISION.txt" ]] && grep -q "$PINNED_COMMIT" "$DEST/REVISION.txt"; then
+
+sha256_file() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | cut -d ' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | cut -d ' ' -f1
+  else
+    echo "ERROR: neither sha256sum nor shasum is available to verify $file." >&2
+    return 1
+  fi
+}
+
+cache_reason="required cache files are missing"
+if [[ -f "$DEST/picorv32.v" && -f "$DEST/COPYING" && -f "$DEST/REVISION.txt" ]]; then
+  if ! grep -Fq "Pinned commit: $PINNED_COMMIT" "$DEST/REVISION.txt"; then
+    cache_reason="REVISION.txt does not identify pinned commit $PINNED_COMMIT"
+  elif [[ "$(sha256_file "$DEST/picorv32.v")" != "$PINNED_SOURCE_SHA256" ]]; then
+    cache_reason="picorv32.v does not match the pinned source hash $PINNED_SOURCE_SHA256"
+  else
+    cache_reason=""
+  fi
+fi
+
+if [[ -z "$cache_reason" ]]; then
   echo "PicoRV32 is already vendored at pinned revision $PINNED_COMMIT"
   exit 0
 fi
-if [[ -e "$DEST/picorv32.v" ]]; then
-  echo "ERROR: $DEST already contains a different/unpinned PicoRV32 source." >&2
+
+if [[ -e "$DEST" || -L "$DEST" ]]; then
+  echo "ERROR: $DEST already contains a different/unpinned PicoRV32 source or incomplete cache: $cache_reason." >&2
   echo "Move it aside manually before re-vendoring; this script will not overwrite it." >&2
   exit 1
 fi

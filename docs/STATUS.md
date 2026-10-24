@@ -1,5 +1,11 @@
 # NEXUS-32 Build Status
 
+## Addendum — 24 October 2026 (post-push)
+
+The Stage 5B candidate described below was pushed as commit 74f4f66eef483ea99569177e5781d8a91067862a on 2026-10-24, and GitHub Actions run #5 on that commit completed SUCCESS (job: "Ubuntu simulation and toolchain regression", including the "Run canonical STATUS property regression" step). Run: https://github.com/Aneeshparveda/NEXUS-32/actions/runs/40110889157
+
+The statements below that the changes "remain uncommitted" and that "no GitHub Actions run has been verified" describe the pre-push local candidate and are superseded by this addendum. Vivado synthesis, timing, bitstream and physical Basys 3 validation remain unverified.
+
 ## Stage 5B local candidate verification — 24 October 2026
 
 The current working-tree candidate was checked with a fresh `make test` in an
@@ -29,7 +35,7 @@ describes the uncommitted candidate, not the public baseline commit.
   (`T_start=239`, `T_verdict=368`, verdict `0x600d600d`).
 - Verification closure: `PASS=15`, `FAIL=0`, `NOT_RUN=0`.
 
-The baseline Git revision remains
+The baseline Git revision remains [superseded — see addendum above]
 `65fb71fb38c7c65159e09d463d316ba1824c5b2c`. The Stage 1–5A candidate
 changes remain uncommitted; they have not been released or merged.
 

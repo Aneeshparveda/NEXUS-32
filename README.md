@@ -332,6 +332,43 @@ closure gate.
 
 The verification-closure command is the canonical pure-RTL gate. It runs the independent 1024-sample block/timing scoreboard, direct pipelined-latency experiments, the 75-case block-processing acceptance suite for `LANES=4, 8, 16, 32`, and the fixed-`LANES=32` block-configuration and configuration-stage acceptance benches. Its generated binaries, per-test status report and logs are written under ignored `results/verification-closure/`; the durable results summary and reproduction details are in [`docs/VERIFICATION_CLOSURE.md`](docs/VERIFICATION_CLOSURE.md). Missing mandatory tools or tests and any compile/simulation failure produce a nonzero gate exit.
 
+### Targeted Wave A/B verification
+
+The targeted regression runners added after the closure receipt are:
+
+```bash
+python3 scripts/run_golden_regression.py
+bash scripts/run_subword_smoke.sh
+bash scripts/run_soc_block_1024.sh all
+bash scripts/run_protected_access_smoke.sh all
+make test-fault
+make test-all
+```
+
+`run_golden_regression.py` compares the existing Python model with all three
+FIR engines using the accepted fixed `LANES=32` harness, seed
+`0x3ACE_B00C`, 1,024 deterministic random vectors, directed vectors, and
+invalid tap counts. `run_subword_smoke.sh` exercises CPU-driven SB/SH/LB/LH/
+LBU/LHU accesses without changing SOC RTL. `run_soc_block_1024.sh all` runs
+the CPU-driven sequential block path at `LANES=4, 8, 16, 32` with
+`SAMPLE_COUNT=1024`, `TAP_COUNT=3`, and `RESULT_COUNT=1024`.
+
+`run_protected_access_smoke.sh all` reports a **representative LANES=32**
+fallback, not a full lane sweep: the existing protected-access firmware
+configures `TAP_COUNT=32`, so lower-lane builds fail preflight before the
+ownership assertions. The canonical `bash scripts/run_rtl_smoke.sh` now also
+invokes these existing script-only lane sweeps:
+
+```bash
+bash scripts/run_selector_smoke.sh all
+bash scripts/run_parallel_smoke.sh all
+bash scripts/run_pipelined_smoke.sh all
+```
+
+These checks provide simulation/toolchain evidence only. Vivado synthesis,
+post-route timing, utilization, bitstream generation, and physical Basys 3
+validation remain unverified.
+
 ## GitHub Actions CI
 
 `.github/workflows/nexus32-ci.yml` runs on pushes and pull requests targeting

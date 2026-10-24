@@ -76,7 +76,10 @@ module fir_pipelined_engine #(
         assign product_comb[lane] = sample_word * coefficient_word;
     end
 
-    // Stage-ready chain: downstream backpressure propagates to the input.
+    // The stage_ready chain is acyclic: stage_ready[STAGES-1] depends only on
+    // registered valid_q[STAGES-1] and out_ready_i; stage_ready[s] depends only
+    // on registered valid_q[s] and stage_ready[s+1]. Therefore no stage depends
+    // on itself or on an earlier stage, so there is no combinational loop here.
     assign stage_ready[STAGES-1] = !valid_q[STAGES-1] || out_ready_i;
     for (genvar s = 0; s < STAGES-1; s++) begin : gen_ready_chain
         assign stage_ready[s] = !valid_q[s] || stage_ready[s+1];

@@ -29,6 +29,28 @@ Generated binaries and logs remain under the ignored directory
 `results/verification-closure/`. They are evidence for the reported run, not
 repository deliverables.
 
+## Hosted CI provenance addendum — 25 October 2026
+
+The October 18, 2026 closure receipt above predates commit
+`74f4f66eef483ea99569177e5781d8a91067862a`. The closure gate was re-run by
+GitHub Actions on that commit in run
+https://github.com/Aneeshparveda/NEXUS-32/actions/runs/40110889157.
+This CI evidence remains simulation/toolchain evidence only; it is not Vivado
+synthesis or implementation evidence, timing closure, bitstream evidence, or
+physical Basys 3 board evidence.
+
+## Timeout bench semantics addendum — 25 October 2026
+
+The timeout firmware in `firmware/nexus32_timeout.S` uses
+`POLL_TIMEOUT=100000` and deliberately never issues `START`; it exercises the
+finite polling loop against quiescent `STATUS=0`. The bench
+`tests/rtl/tb_nexus32_soc_timeout.sv` asserts the T0-to-verdict delta is in
+`[1,400,000, 6,000,000]` cycles with a 6,000,000-cycle watchdog, and its PASS
+line records `cause=3`. The earlier observed delta of 4,200,025 cycles is
+consistent with approximately 100,000 polls at approximately 42 cycles per
+poll; it is a reported simulation observation, not a `CYCLES_TOTAL` value or a
+calibration bound.
+
 ## What was measured
 
 `tests/rtl/tb_fir_seq_accel_block_1024.sv` runs an independent signed Q16.16

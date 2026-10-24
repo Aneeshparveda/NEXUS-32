@@ -61,7 +61,8 @@ EOF
     rtl/top_basys3.sv; do
     : >"$fixture_root/$source_rel"
   done
-  printf '%s\n' 'module picorv32; endmodule' >"$fixture_root/vendor/picorv32/picorv32.v"
+  cp vendor/picorv32/picorv32.v "$fixture_root/vendor/picorv32/picorv32.v"
+  cp vendor/picorv32/COPYING "$fixture_root/vendor/picorv32/COPYING"
 
   case "$vendor_state" in
     valid)
