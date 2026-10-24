@@ -62,6 +62,33 @@ module tb_fir_q16_primitives;
         if (result_o !== -32'sd1)
             $fatal(1, "negative arithmetic shift mismatch: %0d", result_o);
 
+        // Positive truncation boundary: values below one output LSB remain 0.
+        accumulator_i = 72'sd65535;
+        #1;
+        if (result_o !== 32'sd0)
+            $fatal(1, "positive truncation boundary mismatch: %0d", result_o);
+
+        // The first positive output LSB appears exactly at 1 << 16.
+        accumulator_i = 72'sd65536;
+        #1;
+        if (result_o !== 32'sd1)
+            $fatal(1, "positive first-LSB boundary mismatch: %0d", result_o);
+
+        // Negative arithmetic-floor boundaries: -1 and -1.0 both map to -1,
+        // while the first value below -1.0 maps to -2.
+        accumulator_i = -72'sd1;
+        #1;
+        if (result_o !== -32'sd1)
+            $fatal(1, "negative -1 raw-unit boundary mismatch: %0d", result_o);
+        accumulator_i = -72'sd65536;
+        #1;
+        if (result_o !== -32'sd1)
+            $fatal(1, "negative exact-LSB boundary mismatch: %0d", result_o);
+        accumulator_i = -72'sd65537;
+        #1;
+        if (result_o !== -32'sd2)
+            $fatal(1, "negative below-LSB boundary mismatch: %0d", result_o);
+
         // Exact signed-int32 maximum should remain unchanged.
         accumulator_i = (72'sd2147483647 <<< 16);
         #1;
