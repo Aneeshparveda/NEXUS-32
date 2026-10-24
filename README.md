@@ -192,9 +192,10 @@ Before running any checks, `make test` requires
 `firmware/nexus32_smoke.hex`. If the pinned vendor source is absent or
 unverified, it fails with a message directing you to `make setup` instead of
 silently skipping the SoC checks. The gate then runs, in order, the Python
-unit suite, RISC-V toolchain smoke check, RTL smoke regression, all-lane SoC
-smoke regression, Basys 3 wrapper/XDC consistency check, the offline
-Vivado-flow stub, Verilator lint, and the complete verification-closure gate.
+unit suite, RISC-V toolchain smoke check, RTL smoke regression, three-way
+differential FIR regression, all-lane SoC smoke regression, Basys 3
+wrapper/XDC consistency check, the offline Vivado-flow stub, Verilator lint,
+and the complete verification-closure gate.
 The flow stub verifies that the success path creates the expected summaries
 and that an injected mandatory-stage failure returns exit code 1 while
 skipping later stages; it does not replace Vivado synthesis or timing
@@ -206,6 +207,7 @@ The individual underlying commands remain available for focused debugging:
 python3 -m unittest discover -s tests -v
 bash scripts/check_toolchain.sh
 bash scripts/run_rtl_smoke.sh
+bash scripts/run_differential_smoke.sh all
 bash scripts/run_soc_smoke.sh all
 python3 scripts/check_basys3_constraints.py
 bash scripts/test_basys3_flow_stub.sh
@@ -308,12 +310,15 @@ make test
 python3 -m unittest discover -s tests -v
 bash scripts/check_toolchain.sh
 bash scripts/run_rtl_smoke.sh
+bash scripts/run_differential_smoke.sh all
 bash scripts/run_soc_smoke.sh all
 python3 scripts/check_basys3_constraints.py
 bash scripts/run_verification_closure.sh
 ```
 
-`make test` is the canonical offline entry point for this complete sequence.
+`make test` is the canonical offline entry point for this complete sequence;
+its `differential` target runs the existing three-way FIR smoke script for
+`LANES=4, 8, 16, 32`.
 The Python command checks the signed Q16.16 reference behavior, saturation
 boundaries, negative arithmetic shift behavior, tap-count validation, and
 block-model cases. The RTL smoke command runs the arithmetic primitives,
@@ -333,7 +338,8 @@ The verification-closure command is the canonical pure-RTL gate. It runs the ind
 `main`, and can also be started manually. On `ubuntu-24.04` it installs
 Icarus/VVP, Verilator, the `riscv64-unknown-elf` compiler/binutils, and
 provisions the pinned PicoRV32 revision before running the Python, toolchain,
-RTL smoke, four-lane SoC smoke, and complete verification-closure checks.
+RTL smoke, three-way differential FIR, four-lane SoC smoke, and complete
+verification-closure checks.
 Verilator uses `--Wall --Wno-fatal`: warnings remain visible in the log and
 uploaded artifact, while Verilator errors still fail the job.
 

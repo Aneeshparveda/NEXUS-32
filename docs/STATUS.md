@@ -1,8 +1,13 @@
 # NEXUS-32 Build Status
 
-## Verified by user on macOS with Icarus Verilog before Milestone 13
+## Stage 5B local candidate verification — 24 October 2026
 
-- Python reference model: 13 unit tests passed.
+The current working-tree candidate was checked with a fresh `make test` in an
+isolated, byte-verified copy of the candidate. The receipt is recorded at
+`results/verification-closure/stage5b-20261024T125226Z/make-test.log`; it
+describes the uncommitted candidate, not the public baseline commit.
+
+- Python reference model: 14 unit tests passed.
 - Q16.16 MAC and postprocess directed testbench passed.
 - Sequential FIR engine directed testbench passed.
 - Synchronous tap-source alignment testbench passed.
@@ -14,31 +19,28 @@
 - Bus backpressure/stability and SoC reset-recovery testbenches passed.
 - Parallel FIR standalone test passed.
 - Pipelined FIR standalone test passed.
-- Three-way sequential/parallel/pipelined differential test: 70 cases passed.
+- Three-way sequential/parallel/pipelined differential test: 78 cases passed
+  at `LANES=4` and `LANES=32`, and 79 cases passed at `LANES=8` and `LANES=16`.
 - Standalone architecture selector: 52 transactions checked; test passed.
+- STATUS-property regression passed at `LANES=4`, `8`, `16`, and `32`.
+- PicoRV32 protected-access, invalid-configuration, timeout, reset-recovery,
+  and multi-architecture SoC tests passed.
+- Firmware START-to-verdict latency at `LANES=32`: 129 cycles
+  (`T_start=239`, `T_verdict=368`, verdict `0x600d600d`).
+- Verification closure: `PASS=15`, `FAIL=0`, `NOT_RUN=0`.
 
-## Current milestone: CSR/BRAM architecture integration — awaiting Mac validation
+The baseline Git revision remains
+`65fb71fb38c7c65159e09d463d316ba1824c5b2c`. The Stage 1–5A candidate
+changes remain uncommitted; they have not been released or merged.
 
 The candidate update changes `fir_seq_accel.sv` to prefetch the validated sample/coefficient window from synchronous BRAM, dispatch it to the selected engine, and return the result through the existing commit port. The CTRL write uses `START` at bit 0, `RESET` at bit 1, and `ARCH_SEL` in bits [3:2]: `00` sequential, `01` parallel, `10` pipelined, `11` reserved/error. The selector is single-outstanding; full-wrapper throughput is not claimed to be one result per cycle.
 
-Run these in order:
-
-1. `bash scripts/run_arch_integration_smoke.sh`
-2. `bash scripts/run_selector_smoke.sh`
-3. `bash scripts/run_differential_smoke.sh`
-4. `bash scripts/run_parallel_smoke.sh`
-5. `bash scripts/run_pipelined_smoke.sh`
-6. `bash scripts/build_smoke_firmware.sh`
-7. `bash scripts/run_rtl_smoke.sh`
-
-The new CSR/BRAM and PicoRV32 multi-architecture tests have not yet been verified on the user's Mac. Expected new messages:
-
-- `PASS: CSR-driven sequential/parallel/pipelined execution, common results, ARCH_SEL validation, and soft reset`
-- `PASS: PicoRV32 firmware selected sequential, parallel, and pipelined FIR; all results and commit count match`
+No GitHub Actions run for this modified revision has been verified. The local
+pass must not be represented as external CI evidence.
 
 ## Known limitations
 
-- No Vivado synthesis/implementation has been run; BRAM inference, DSP/LUT/FF utilization, timing closure, and bitstream generation remain unverified.
+- No real Vivado synthesis, implementation timing, utilization, DRC, or bitstream generation has been run; FPGA implementation and physical Basys 3 behavior remain unverified.
 - The accelerator wrapper gathers tap data into packed vector registers before dispatch. The architecture selector serializes the whole wrapped transaction; its top-level throughput is not the standalone pipeline engine's 1-result/cycle throughput.
 - `ARCH_SEL=11` is rejected; no adaptive/Auto policy is implemented.
 - The CPU integration is single-master and does not yet implement DMA, UART, GPIO, Sample B, STREAM-DB, or the planned system debug monitor.
