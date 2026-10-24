@@ -24,6 +24,7 @@ module tb_nexus32_accel_bus #(
     logic [31:0] rd;
     logic err;
     logic done_seen;
+    logic [31:0] result_before_busy_write;
 
     localparam logic [31:0] COEFF_BASE = 32'h0002_0000;
     localparam logic [31:0] SAMPLE_BASE = 32'h0002_1000;
@@ -262,11 +263,6 @@ module tb_nexus32_accel_bus #(
         bus_xfer(1'b1, SAMPLE_COUNT_ADDR, 32'd1, 4'hf, rd, err);
         if (err) $fatal(1, "SAMPLE_COUNT write failed before max-tap run");
 
-        // Set a clearable event before the next run, then verify that a debug
-        // W1C while busy is rejected without clearing it.
-        bus_xfer(1'b1, RESULT_BASE, 32'hdead_beef, 4'hf, rd, err);
-        if (!err) $fatal(1, "result write did not set a clearable debug event");
-
         // Now launch a max-tap block and try to write the owned sample bank.
         // The attempted write must be rejected, but host protection must not
         // invalidate the active run or suppress its result commit.
@@ -284,13 +280,28 @@ module tb_nexus32_accel_bus #(
             bus_xfer(1'b1, CTRL_ADDR, 32'd1, 4'hf, rd, err);
             if (err || !accelerator_busy)
                 $fatal(1, "START while BUSY was not a normal no-op");
+            bus_xfer(1'b0, DBG_STATUS_ADDR, 32'd0, 4'hf, rd, err);
+            if (err || rd !== 32'd0)
+                $fatal(1, "busy result-write test did not start from a clean debug baseline: %08x", rd);
+            result_before_busy_write = dut.result_mem[0];
+            bus_xfer(1'b1, RESULT_BASE, 32'hdead_beef, 4'hf, rd, err);
+            if (!err || rd !== 32'd0)
+                $fatal(1, "busy result write response mismatch: err=%b data=%08x", err, rd);
+            if (dut.result_mem[0] !== result_before_busy_write)
+                $fatal(1, "busy result write changed physical result memory");
+            bus_xfer(1'b0, DBG_STATUS_ADDR, 32'd0, 4'hf, rd, err);
+            if (err || (rd & 32'h0000_000c) != 32'h0000_0008)
+                $fatal(1, "busy result write classification mismatch: debug=%08x", rd);
             bus_xfer(1'b0, SAMPLE_BASE + 0, 32'd0, 4'hf, rd, err);
             if (!err || rd !== 32'hbad0_0001)
                 $fatal(1, "owned sample read sentinel mismatch: err=%b data=%08x", err, rd);
+            bus_xfer(1'b0, DBG_STATUS_ADDR, 32'd0, 4'hf, rd, err);
+            if (err || (rd & 32'h0000_000c) != 32'h0000_000c)
+                $fatal(1, "owned sample read classification mismatch: debug=%08x", rd);
             bus_xfer(1'b1, DBG_STATUS_ADDR, 32'h0000_0008, 4'hf, rd, err);
             if (!err) $fatal(1, "debug W1C while busy was not rejected");
             bus_xfer(1'b0, DBG_STATUS_ADDR, 32'd0, 4'hf, rd, err);
-            if (err || !(rd & 32'h0000_0008) || !(rd & 32'h0000_0002))
+            if (err || (rd & 32'h0000_000e) != 32'h0000_000e)
                 $fatal(1, "busy debug W1C classification mismatch: %08x", rd);
             bus_xfer(1'b1, SAMPLE_BASE + 0, 32'hdead_beef, 4'hf, rd, err);
             if (!err) $fatal(1, "sample write during ownership was not rejected");
