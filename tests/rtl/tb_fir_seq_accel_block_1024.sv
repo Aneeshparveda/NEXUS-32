@@ -18,10 +18,12 @@
 //     rtl/nexus32_accel_bus.sv tests/rtl/tb_fir_seq_accel_block_1024.sv
 //   vvp results/rtl/tb_fir_seq_accel_block_1024_l32.vvp
 module tb_fir_seq_accel_block_1024 #(
-    parameter int LANES = 32
+    parameter int LANES = 32,
+    parameter int TAP_COUNT_VALUE = 3,
+    parameter int ARCHITECTURE_COUNT = 3,
+    parameter bit RUN_FAULT_CASES = 1'b1
 );
     localparam int SAMPLE_COUNT_VALUE = 1024;
-    localparam int TAP_COUNT_VALUE = 3;
     localparam int LONG_RUN_BOUND = 100000;
     localparam logic [31:0] CSR_BASE = 32'h1000_5000;
     localparam logic [31:0] COEFF_BASE = 32'h0002_0000;
@@ -665,9 +667,10 @@ module tb_fir_seq_accel_block_1024 #(
 
     initial begin : RUN_CLOSURE
         integer architecture;
-        for (architecture = 0; architecture < 3; architecture = architecture + 1) begin
+        for (architecture = 0; architecture < ARCHITECTURE_COUNT; architecture = architecture + 1) begin
             run_full_block(architecture);
-            run_fault_block(architecture);
+            if (RUN_FAULT_CASES)
+                run_fault_block(architecture);
         end
         $display("BLOCK_1024_SUMMARY lanes=%0d failures=%0d functional_failures=%0d counter_failures=%0d harness_errors=%0d",
                  LANES, failures, functional_failures, counter_failures, harness_errors);

@@ -2,9 +2,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-mkdir -p results/verification-closure
-
-OUT=results/verification-closure
+OUT="${NEXUS32_VERIFICATION_CLOSURE_OUT:-results/verification-closure}"
+mkdir -p "$OUT"
 LOG="$OUT/verification-closure.log"
 COMMANDS="$OUT/commands.txt"
 STATUS="$OUT/status.tsv"
@@ -55,11 +54,13 @@ run_iverilog_test() {
   shift 6
   local -a sources=("$@")
   local -a compile_command=(iverilog -g2012 -Wall -s "$top")
+  local -a parameter_args=()
   local compile_rc
   local run_rc
 
   if [[ -n "$parameter_arg" ]]; then
-    compile_command+=("$parameter_arg")
+    read -r -a parameter_args <<< "$parameter_arg"
+    compile_command+=("${parameter_args[@]}")
   fi
   compile_command+=(-o "$vvp_path" "${sources[@]}")
 
@@ -130,6 +131,7 @@ PIPE_SOURCES=(
 )
 
 REQUIRED_TESTS=(
+  block_1024_max_seq_l32
   block_1024_l4
   block_1024_l8
   block_1024_l16
@@ -165,6 +167,17 @@ run_block_1024() {
     "$OUT/block_1024_l${lanes}.compile.log" \
     "$OUT/block_1024_l${lanes}.run.log" \
     "-Ptb_fir_seq_accel_block_1024.LANES=${lanes}" \
+    "${BLOCK_SOURCES[@]}"
+}
+
+run_block_1024_max_sequential() {
+  run_iverilog_test \
+    "block_1024_max_seq_l32" \
+    tb_fir_seq_accel_block_1024 \
+    "$OUT/tb_fir_seq_accel_block_1024_max_seq_l32.vvp" \
+    "$OUT/block_1024_max_seq_l32.compile.log" \
+    "$OUT/block_1024_max_seq_l32.run.log" \
+    "-Ptb_fir_seq_accel_block_1024.LANES=32 -Ptb_fir_seq_accel_block_1024.TAP_COUNT_VALUE=32 -Ptb_fir_seq_accel_block_1024.ARCHITECTURE_COUNT=1 -Ptb_fir_seq_accel_block_1024.RUN_FAULT_CASES=0" \
     "${BLOCK_SOURCES[@]}"
 }
 
@@ -207,6 +220,8 @@ run_fixed_lane_acceptance() {
     "${ACCEL_SOURCES[@]}" \
     "$test_source"
 }
+
+run_block_1024_max_sequential
 
 for lanes in 4 8 16 32; do
   run_block_1024 "$lanes"
