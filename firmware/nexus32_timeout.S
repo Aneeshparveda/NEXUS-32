@@ -1,0 +1,49 @@
+    .option norvc
+    .equ    POLL_TIMEOUT, 100000
+    .section .text.init,"ax",@progbits
+    .globl _start
+_start:
+    lui     sp, 0x14
+    lui     s2, 0x10               # DMEM base 0x00010000
+    li      s4, 0
+    li      t0, 0x4e583332         # "NX32" boot signature
+    sw      t0, 0(s2)
+
+    # Deliberately do not issue START.  This exercises the finite polling
+    # loop against a quiescent STATUS=0 state, not a wedged active operation.
+    lui     s3, 0x10005            # accelerator CSR base 0x10005000
+    li      t5, POLL_TIMEOUT
+poll_status:
+    lw      t1, 4(s3)              # STATUS
+    mv      s4, t1
+    andi    t2, t1, 4              # ERROR first
+    bne     t2, zero, fail_error
+    andi    t2, t1, 2              # DONE without a started run is invalid
+    bne     t2, zero, fail_result
+    addi    t5, t5, -1
+    beq     t5, zero, fail_timeout
+    jal     zero, poll_status
+
+fail_result:
+    li      t2, 1
+    sw      t2, 24(s2)              # DMEM[6]: failure cause
+    sw      s4, 28(s2)              # DMEM[7]: last STATUS snapshot
+    jal     zero, fail
+
+fail_error:
+    li      t2, 2
+    sw      t2, 24(s2)
+    sw      t1, 28(s2)
+    jal     zero, fail
+
+fail_timeout:
+    li      t2, 3                  # expected bounded timeout
+    sw      t2, 24(s2)
+    sw      t1, 28(s2)
+
+fail:
+    li      t2, 0xdead0001
+    sw      t2, 8(s2)
+    sw      t1, 4(s2)
+fail_halt:
+    jal     zero, fail_halt

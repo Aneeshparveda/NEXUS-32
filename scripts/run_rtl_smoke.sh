@@ -90,6 +90,25 @@ if [[ -f vendor/picorv32/picorv32.v && -f firmware/nexus32_smoke.hex ]]; then
     tests/rtl/tb_nexus32_soc.sv
   vvp results/rtl/tb_nexus32_soc.vvp
 
+  # Exercise the CPU-visible protected-read sentinel and rejected result write
+  # while a real accelerator operation owns the memory banks.
+  bash scripts/build_protected_access_firmware.sh
+  iverilog -g2012 -Wall -s tb_nexus32_soc_protected_access \
+    -o results/rtl/tb_nexus32_soc_protected_access.vvp \
+    vendor/picorv32/picorv32.v \
+    rtl/fir_q16_mac.sv \
+    rtl/fir_q16_postprocess.sv \
+    rtl/fir_seq_engine.sv \
+    rtl/fir_parallel_engine.sv \
+    rtl/fir_pipelined_engine.sv \
+    rtl/fir_arch_selector.sv \
+    rtl/fir_tap_bram.sv \
+    rtl/fir_seq_accel.sv \
+    rtl/nexus32_accel_bus.sv \
+    rtl/nexus32_soc.sv \
+    tests/rtl/tb_nexus32_soc_protected_access.sv
+  vvp results/rtl/tb_nexus32_soc_protected_access.vvp
+
   # Exercise all three architectural choices through PicoRV32, the memory
   # bridge, the real accelerator CSR shell, BRAM prefetch, and result memory.
   bash scripts/build_multiarch_firmware.sh
