@@ -18,6 +18,30 @@ set output_root_setup_error [catch {file mkdir $output_root} output_root_setup_m
 set part "xc7a35tcpg236-1"
 set xdc [file join $script_dir core_clock.xdc]
 
+proc query_source_revision {repo_root} {
+    set unknown_result [list UNKNOWN UNKNOWN]
+    if {[catch {exec git -C $repo_root rev-parse --verify HEAD} commit_message]} {
+        puts stderr "WARNING: source provenance unavailable: Git commit query failed: $commit_message"
+        return $unknown_result
+    }
+    set commit_sha [string trim $commit_message]
+    if {![regexp {^[0-9a-fA-F]{40}$} $commit_sha]} {
+        puts stderr "WARNING: source provenance unavailable: Git returned an invalid commit SHA: $commit_sha"
+        return $unknown_result
+    }
+
+    if {[catch {exec git -C $repo_root status --porcelain --untracked-files=all} status_message]} {
+        puts stderr "WARNING: source provenance unavailable: Git status query failed: $status_message"
+        return $unknown_result
+    }
+    set dirty [expr {[string trim $status_message] eq "" ? "NO" : "YES"}]
+    return [list $commit_sha $dirty]
+}
+
+set source_commit "UNKNOWN"
+set source_dirty "UNKNOWN"
+lassign [query_source_revision $root_dir] source_commit source_dirty
+
 # Record tool version
 set vivado_version "N/A"
 set version_query_error [catch {set vivado_version [version -short]} version_query_message]
@@ -28,6 +52,8 @@ puts "Project Root   : $root_dir"
 puts "Target Part    : $part (Basys 3 Artix-7 XC7A35T)"
 puts "Clock Target   : 10.000 ns (100 MHz)"
 puts "Output Root    : $output_root"
+puts "Source Commit  : $source_commit"
+puts "Source Dirty   : $source_dirty"
 puts "================================================================="
 
 # Synthesis targets:
@@ -538,9 +564,9 @@ set csv_file [file join $output_root "characterization_summary.csv"]
 set fp ""
 set csv_error [catch {
     set fp [open $csv_file w]
-    puts $fp [csv_row [list Case Top LANES Status Report_Directory Command Failure_Stage Failure_Message LUTs FFs DSPs BRAMs WNS_ns Timing_Met Data_Path_Delay_ns]]
+    puts $fp [csv_row [list Case Top LANES Status Report_Directory Command Failure_Stage Failure_Message LUTs FFs DSPs BRAMs WNS_ns Timing_Met Data_Path_Delay_ns Source_Commit Source_Dirty]]
     foreach r $results_table {
-        puts $fp [csv_row $r]
+        puts $fp [csv_row [concat $r [list $source_commit $source_dirty]]]
     }
     close $fp
     set fp ""
@@ -559,15 +585,17 @@ set md_error [catch {
     puts $fp "# NEXUS-32 FIR Core Characterization Summary"
     puts $fp ""
     puts $fp "- **Vivado Version**: [markdown_field $vivado_version]"
+    puts $fp "- **Source Commit**: [markdown_field $source_commit]"
+    puts $fp "- **Source Dirty**: [markdown_field $source_dirty]"
     puts $fp "- **Target Part**: $part (Artix-7 xc7a35tcpg236-1)"
     puts $fp "- **Clock Period Target**: 10.000 ns (100.0 MHz)"
     puts $fp "- **Flow**: Out-of-Context Non-Project Mode Synthesis"
     puts $fp ""
-    puts $fp "| Case | Top Module | LANES | Status | Report Directory | Command | Failure Stage | Failure Message | LUTs | FFs | DSPs | BRAMs | WNS (ns) | Timing Met | Data Path Delay (ns) |"
-    puts $fp "| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
+    puts $fp "| Case | Top Module | LANES | Status | Report Directory | Command | Failure Stage | Failure Message | LUTs | FFs | DSPs | BRAMs | WNS (ns) | Timing Met | Data Path Delay (ns) | Source Commit | Source Dirty |"
+    puts $fp "| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- | :---: |"
     foreach r $results_table {
         lassign $r case_id top lanes status report_dir command failure_stage failure_message luts ffs dsps brams wns met data_path
-        puts $fp "| [markdown_field $case_id] | `[markdown_field $top]` | [markdown_field $lanes] | [markdown_field $status] | [markdown_field $report_dir] | [markdown_field $command] | [markdown_field $failure_stage] | [markdown_field $failure_message] | [markdown_field $luts] | [markdown_field $ffs] | [markdown_field $dsps] | [markdown_field $brams] | [markdown_field $wns] | [markdown_field $met] | [markdown_field $data_path] |"
+        puts $fp "| [markdown_field $case_id] | `[markdown_field $top]` | [markdown_field $lanes] | [markdown_field $status] | [markdown_field $report_dir] | [markdown_field $command] | [markdown_field $failure_stage] | [markdown_field $failure_message] | [markdown_field $luts] | [markdown_field $ffs] | [markdown_field $dsps] | [markdown_field $brams] | [markdown_field $wns] | [markdown_field $met] | [markdown_field $data_path] | [markdown_field $source_commit] | [markdown_field $source_dirty] |"
     }
     puts $fp ""
     puts $fp "### Interpretation Limits"

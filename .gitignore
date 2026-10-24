@@ -29,6 +29,7 @@ results/rtl/*.vvp
 results/rtl/*.vcd
 results/verification-closure/
 results/vivado/
+results/vivado_core/
 firmware/nexus32_smoke.hex
 firmware/nexus32_invalid_fetch.hex
 

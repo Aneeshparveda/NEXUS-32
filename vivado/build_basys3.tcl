@@ -350,18 +350,14 @@ set tools_status [run_required_stage "toolchain_selection" "" $tools_command {
     puts "RISCV_OBJCOPY  : $riscv_objcopy"
 }]
 
-set vendor_command "bash $vendor_script (only when vendor/picorv32/picorv32.v is absent)"
+set vendor_command "bash $vendor_script (verify pinned PicoRV32 revision)"
 set vendor_status [run_required_stage "vendor_rtl" $vendor_source $vendor_command {
-    if {![file exists $vendor_source]} {
-        if {![file exists $vendor_script]} {
-            error "vendor provisioning script not found: $vendor_script"
-        }
-        set vendor_output [exec bash $vendor_script 2>@1]
-        if {$vendor_output ne ""} {
-            puts $vendor_output
-        }
-    } else {
-        puts "PicoRV32 vendor RTL already present: $vendor_source"
+    if {![file exists $vendor_script]} {
+        error "vendor provisioning script not found: $vendor_script"
+    }
+    set vendor_output [exec bash $vendor_script 2>@1]
+    if {$vendor_output ne ""} {
+        puts $vendor_output
     }
     ensure_artifact $vendor_source
 }]
@@ -445,6 +441,7 @@ set synth_status [run_required_stage "synthesis" "" $synth_command {
 }]
 
 set post_synth_utilization [file join $post_synth_report_dir utilization.rpt]
+set post_synth_utilization_hierarchical [file join $post_synth_report_dir utilization_hierarchical.rpt]
 set post_synth_timing_summary [file join $post_synth_report_dir timing_summary.rpt]
 set post_synth_timing_paths [file join $post_synth_report_dir timing_paths.rpt]
 set post_synth_clocks [file join $post_synth_report_dir clocks.rpt]
@@ -458,6 +455,15 @@ run_artifact_stage "post_synth.report_utilization" $post_synth_utilization \
         error "Vivado command unavailable: report_utilization"
     }
     report_utilization -file $path
+    ensure_artifact $path
+}
+
+run_artifact_stage "post_synth.report_utilization_hierarchical" $post_synth_utilization_hierarchical \
+    "report_utilization -hierarchical -file $post_synth_utilization_hierarchical" {
+    if {[info commands report_utilization] eq ""} {
+        error "Vivado command unavailable: report_utilization"
+    }
+    report_utilization -hierarchical -file $path
     ensure_artifact $path
 }
 
@@ -529,6 +535,7 @@ run_required_stage "route_design" "" "route_design" {
 }
 
 set post_impl_utilization [file join $post_impl_report_dir utilization.rpt]
+set post_impl_utilization_hierarchical [file join $post_impl_report_dir utilization_hierarchical.rpt]
 set post_impl_timing_summary [file join $post_impl_report_dir timing_summary.rpt]
 set post_impl_timing_paths [file join $post_impl_report_dir timing_paths.rpt]
 set post_impl_clocks [file join $post_impl_report_dir clocks.rpt]
@@ -542,6 +549,15 @@ run_artifact_stage "post_impl.report_utilization" $post_impl_utilization \
         error "Vivado command unavailable: report_utilization"
     }
     report_utilization -file $path
+    ensure_artifact $path
+}
+
+run_artifact_stage "post_impl.report_utilization_hierarchical" $post_impl_utilization_hierarchical \
+    "report_utilization -hierarchical -file $post_impl_utilization_hierarchical" {
+    if {[info commands report_utilization] eq ""} {
+        error "Vivado command unavailable: report_utilization"
+    }
+    report_utilization -hierarchical -file $path
     ensure_artifact $path
 }
 
