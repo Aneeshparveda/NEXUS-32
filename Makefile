@@ -23,13 +23,13 @@ SMOKE_FIRMWARE := firmware/nexus32_smoke.hex
 VERILATOR_LOG := results/verification-closure/verilator-lint.log
 
 .PHONY: setup test check-tool-selection check-vendor check-prerequisites \
-	python-tests toolchain rtl soc basys3 vivado-flow-stub verilator \
+	python-tests toolchain rtl differential status-property soc soc-latency basys3 vivado-flow-stub provenance-test verilator \
 	verification-closure
 
 # The full regression is intentionally offline: it never runs make setup.
 # Run that target once on a connected machine to provision the pinned source
 # and firmware images required by the SoC checks.
-test: check-prerequisites python-tests toolchain rtl soc basys3 vivado-flow-stub verilator verification-closure
+test: status-property check-prerequisites python-tests toolchain rtl differential soc soc-latency basys3 vivado-flow-stub provenance-test verilator verification-closure
 
 check-tool-selection:
 	@if [[ -z "$(RISCV_CC)" || -z "$(RISCV_OBJCOPY)" ]]; then \
@@ -88,14 +88,26 @@ toolchain:
 rtl:
 	@bash scripts/run_rtl_smoke.sh
 
+differential:
+	@bash scripts/run_differential_smoke.sh all
+
+status-property:
+	@bash scripts/run_status_property.sh
+
 soc:
 	@bash scripts/run_soc_smoke.sh all
+
+soc-latency:
+	@bash scripts/run_soc_latency.sh
 
 basys3:
 	@python3 scripts/check_basys3_constraints.py
 
 vivado-flow-stub:
 	@bash scripts/test_basys3_flow_stub.sh
+
+provenance-test:
+	@tclsh scripts/test_core_characterization_provenance.tcl
 
 verilator:
 	@mkdir -p results/verification-closure

@@ -67,6 +67,9 @@ jobs:
           printf '%s\n' '--- Verilator ---'
           verilator --version
 
+      - name: Run canonical STATUS property regression
+        run: bash scripts/run_status_property.sh
+
       - name: Provision pinned PicoRV32 and base firmware image
         run: |
           set -euo pipefail
@@ -84,11 +87,17 @@ jobs:
       - name: Run RTL smoke regression
         run: bash scripts/run_rtl_smoke.sh
 
+      - name: Run three-way differential FIR regression
+        run: make differential
+
       - name: Run SoC smoke regression across LANES 4, 8, 16, and 32
         run: bash scripts/run_soc_smoke.sh all
 
       - name: Check Basys-3 wrapper and XDC port consistency
         run: python3 scripts/check_basys3_constraints.py
+
+      - name: Run characterization provenance test
+        run: make provenance-test
 
       - name: Run Verilator lint with documented warning baseline
         run: |
