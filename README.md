@@ -1,3 +1,35 @@
+[![CI](https://github.com/Aneeshparveda/NEXUS-32/actions/workflows/nexus32-ci.yml/badge.svg)](https://github.com/Aneeshparveda/NEXUS-32/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![SystemVerilog](https://img.shields.io/badge/RTL-SystemVerilog-blue.svg)
+
+> **Status — read this first:** Simulation + CI verified
+> (remote HEAD 868ef6b, CI run #7, all 23 steps). Vivado synthesis,
+> timing, bitstream, and physical Basys 3 board validation are
+> **not yet claimed** — they are the laptop-day / board phase, not
+> done yet. SoC latency of **129 cycles is a LANES=32 simulation
+> latency only** (START-to-verdict), not a board measurement and
+> not `CYCLES_TOTAL`. No LUT / DSP / WNS numbers are claimed in
+> this README, because no Vivado run has produced them yet.
+
+## Contents
+
+- [Target and architecture](#target-and-architecture)
+- [Current block-processing status](#current-block-processing-status)
+- [Numerical contract](#numerical-contract)
+- [Architecture diagrams](#architecture-diagrams)
+- [Simulation results (only)](#simulation-results-only)
+- [SoC memory map](#soc-memory-map)
+- [Accelerator CSR interface](#accelerator-csr-interface)
+- [Known implementation limitations](#known-implementation-limitations)
+- [Repository layout](#repository-layout)
+- [Reproducible setup and offline test](#reproducible-setup-and-offline-test)
+- [Docker reproducibility](#docker-reproducibility)
+- [Basys 3 integration and FPGA build](#basys-3-integration-and-fpga-build)
+- [FPGA deployment and physical validation](#fpga-deployment-and-physical-validation)
+- [Verification commands](#verification-commands)
+- [GitHub Actions CI](#github-actions-ci)
+- [FPGA validation status](#fpga-validation-status)
+
 # NEXUS-32 — PicoRV32 FIR SoC
 
 NEXUS-32 is a PicoRV32-based SoC and a controlled comparison of three direct-form FIR architectures:
@@ -65,6 +97,114 @@ The saturation limits are `0x7fffffff` and `0x80000000`. Arithmetic right shift 
 - **Parallel:** `rtl/fir_parallel_engine.sv` captures a vector, zero-gates inactive lanes, reduces the signed 72-bit products through a balanced tree, and registers the result. Ready/valid output backpressure holds the result stable.
 - **Pipelined:** `rtl/fir_pipelined_engine.sv` registers products, reduction levels, and output processing with elastic ready/valid propagation. Its nominal `cycles_o` is `DEPTH + 1` (`6` at `LANES=32`), not elapsed latency under backpressure.
 - **Selector:** `rtl/fir_arch_selector.sv` selects sequential, parallel, or pipelined operation at run time and returns ordered responses. Invalid architecture/tap requests become error responses.
+
+## Architecture diagrams
+
+Diagrams are rendered from the RTL structure and the planned flow.
+Vivado and board parts are labelled not yet done where they appear.
+
+### SoC block diagram
+
+> **What is still unverified in this diagram:** the Basys 3 wrapper,
+> pin constraints, and Vivado build flow are source-integrated, but
+> Vivado synthesis, timing, bitstream, and board programming have NOT
+> been run. The diagram shows the intended target and the RTL
+> structure, not a validated board design.
+
+```mermaid
+flowchart TD
+    TOP["top_basys3.sv<br/>Digilent Basys 3 / Artix-7 XC7A35T"]
+    SOC["nexus32_soc.sv<br/>PicoRV32 SoC"]
+    CPU["PicoRV32<br/>pinned ef203c2<br/>provisioned, not distributed"]
+    IMEM["Instruction BRAM<br/>16 KiB<br/>0x0000_0000–0x0000_3FFF"]
+    DMEM["Data BRAM<br/>16 KiB<br/>0x0001_0000–0x0001_3FFF"]
+    BUS["nexus32_accel_bus.sv<br/>single-master 32-bit<br/>valid/ready adapter"]
+    COEFF["Coefficient BRAM<br/>1024 x 32<br/>0x0002_0000–0x0002_0FFF"]
+    SAMPLE["Sample BRAM<br/>1024 x 32<br/>0x0002_1000–0x0002_1FFF"]
+    RESULT["Result BRAM<br/>1024 x 32, host read-only<br/>0x0002_2000–0x0002_2FFF"]
+    ACCEL["fir_seq_accel.sv<br/>accelerator CSR shell<br/>CSRs at 0x1000_5000"]
+    TAP["fir_tap_bram.sv<br/>synchronous tap BRAM"]
+    SEL["fir_arch_selector.sv<br/>runtime architecture selector"]
+    SEQ["fir_seq_engine.sv<br/>Sequential"]
+    PAR["fir_parallel_engine.sv<br/>Parallel"]
+    PIPE["fir_pipelined_engine.sv<br/>Pipelined"]
+
+    TOP --> SOC
+    SOC --> CPU
+    SOC --> IMEM
+    SOC --> DMEM
+    SOC --> BUS
+    BUS --> COEFF
+    BUS --> SAMPLE
+    BUS --> RESULT
+    BUS --> ACCEL
+    ACCEL --> TAP
+    ACCEL --> SEL
+    SEL --> SEQ
+    SEL --> PAR
+    SEL --> PIPE
+```
+
+### FIR accelerator comparison
+
+> **What is still unverified in this diagram:** engine cycle counts
+> below are from simulation / engine definitions, not from board
+> measurements. The integrated shell serializes to one outstanding
+> operation, so SoC-level results are functional block-processing
+> results, NOT standalone throughput or PPA measurements. Do not
+> present this diagram as a throughput or PPA comparison.
+
+```mermaid
+flowchart LR
+    IN["Input sample +<br/>history window<br/>zero-initialised history"]
+    CFG["Configuration<br/>TAP_COUNT, COEFF_PTR<br/>INPUT_PTR, OUTPUT_PTR<br/>SAMPLE_COUNT 1..1024"]
+    SEQ["Sequential<br/>fir_seq_engine<br/>one MAC at a time<br/>tap_count + 1 cycles / sample"]
+    PAR["Parallel<br/>fir_parallel_engine<br/>one multiplier per lane<br/>balanced reduction tree<br/>registered result"]
+    PIPE["Pipelined<br/>fir_pipelined_engine<br/>registered products +<br/>reduction levels<br/>elastic ready/valid<br/>nominal cycles_o = DEPTH + 1<br/>(6 at LANES = 32)"]
+    POST["Q16.16 post-process<br/>fir_q16_postprocess<br/>72-bit Q40.32 accumulator<br/>no intermediate rounding/saturation<br/>>>> 16, then int32 clamp"]
+    OUT["Result BRAM commit<br/>RESULT_COUNT counts<br/>only successful commits<br/>DONE after final commit"]
+
+    IN --> CFG
+    CFG --> SEQ
+    CFG --> PAR
+    CFG --> PIPE
+    SEQ --> POST
+    PAR --> POST
+    PIPE --> POST
+    POST --> OUT
+```
+
+### Repository and verification workflow
+
+> **What is still unverified in this diagram:** everything in a dashed
+> box is NOT YET DONE. Do not render those boxes as solid, and do not
+> remove the "not yet done" label — the dashed style IS the honesty
+> mechanism. If GitHub's Mermaid renderer does not support the dashed
+> class in this exact form, replace the class with the text
+> "(NOT YET DONE)" in the box label and keep the label.
+
+```mermaid
+flowchart TD
+    GOLD["Python golden model<br/>golden_model/fir_q16.py<br/>Q16.16 reference"]
+    RTL["SystemVerilog RTL<br/>rtl/ + tests/rtl/<br/>differential + SoC benches"]
+    FW["Assembly firmware<br/>firmware/<br/>block, sub-word, fault paths"]
+    CI["GitHub Actions CI<br/>closure gate →<br/>make test-fault → upload<br/>simulation + toolchain only"]
+    OOC["Vivado OOC characterisation<br/>(NOT YET DONE)"]
+    BOARD4["Board build LANES = 4<br/>(NOT YET DONE)"]
+    BOARD16["Board build LANES = 16<br/>(NOT YET DONE)"]
+    PROG["Program board + telemetry<br/>LEDs, reset, bitstream SHA<br/>(NOT YET DONE)"]
+
+    GOLD --> RTL
+    RTL --> FW
+    FW --> CI
+    CI -.-> OOC
+    OOC -.-> BOARD4
+    BOARD4 -.-> BOARD16
+    BOARD16 -.-> PROG
+
+    classDef notdone stroke-dasharray: 5 5
+    class OOC,BOARD4,BOARD16,PROG notdone
+```
 
 ## SoC memory map
 
@@ -296,6 +436,29 @@ synthesis, implementation/timing, bitstream-programming, or physical
 validation result; `make test` establishes simulation and source-level checks
 only. Perform the deployment steps above only after the integrated Vivado
 flow completes successfully on a machine with the licensed tool and hardware.
+
+## Simulation results (only)
+
+Simulation evidence only — not throughput, not MHz, not LUT/DSP,
+not board results. From `docs/VERIFICATION_CLOSURE.md` (receipt
+2026-10-18, Icarus 13.0; 1024 samples, TAP_COUNT = 3), re-confirmed
+by the Mac runs on this tree and by CI run #7 on 868ef6b.
+The integrated shell serializes to one outstanding operation, so
+these are functional block-processing cycle counts, not standalone
+architecture throughput or PPA measurements. Pipelined cycles rise
+with LANES because the serialized shell dominates — that caveat
+travels with the table, do not drop it.
+
+| LANES | Sequential CYCLES_TOTAL | Parallel CYCLES_TOTAL | Pipelined CYCLES_TOTAL |
+|---:|---:|---:|---:|
+| 4 | 9222 | 5126 | 8198 |
+| 8 | 9222 | 5126 | 9222 |
+| 16 | 9222 | 5126 | 10246 |
+| 32 | 9222 | 5126 | 11270 |
+
+SoC START-to-verdict latency, LANES = 32, simulation only: **129 cycles**
+(START to verdict, verdict `0x600d600d`). This is NOT `CYCLES_TOTAL`
+and NOT a board latency.
 
 ## Verification commands
 
