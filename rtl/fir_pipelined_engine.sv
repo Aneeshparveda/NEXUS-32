@@ -1,5 +1,7 @@
 `timescale 1ns/1ps
-// NEXUS-32 direct-form FIR with a six-cycle registered balanced reduction pipeline.
+// NEXUS-32 direct-form FIR with a registered balanced reduction pipeline.
+// Nominal latency is LATENCY = $clog2(LANES) + 1 cycles (3/4/5/6 for
+// LANES 4/8/16/32); "six-cycle" holds only at LANES=32, not at all LANES.
 //
 // Numerical contract:
 // - Signed Q16.16 32-bit samples and coefficients.

@@ -1,3 +1,21 @@
+> **Lab addendum — 2026-10-25 (autonomous lab, working copy HEAD `db7cd79`).
+> The milestone text below is preserved verbatim. Two pre-addendum claims
+> are superseded, and only those two: the connection clause of pre-addendum
+> line 5 ("not yet connected to the SoC bus or the sample/coefficient
+> BRAM") and the adapter clause of pre-addendum line 37 ("a BRAM
+> gather/prefetch adapter is required before architectural selection can
+> switch"). Since Milestone 13 (`docs/ACCEL_ARCH_INTEGRATION.md`),
+> `fir_seq_accel` instantiates `fir_arch_selector`, which instantiates the
+> parallel engine (CTRL bits 3:2 = `01`), and the connection is via the
+> selector plus the BRAM gather/prefetch adapter feeding stable vectors —
+> not a direct BRAM port on the engine itself. Carve-outs: pre-addendum
+> line 5's arithmetic description (32-tap window, 32 multipliers, 32-to-1
+> tree) holds only at the default LANES=32 — the engine is now
+> parameterized (LANES 4/8/16/32); pre-addendum line 37's final clause
+> (resource inference, DSP count, post-synthesis timing, and bitstream
+> functionality not yet measured) is **still true**. The remainder of this
+> milestone document was not re-verified in this change.
+
 # NEXUS-32 Parallel FIR Engine — first RTL milestone
 
 ## Scope

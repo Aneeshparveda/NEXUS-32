@@ -199,6 +199,48 @@ module tb_fir_pipelined_engine #(
         end
     endtask
 
+    // U-A2 driver: same stream items as submit_stream, but out_ready_i
+    // toggles 2 ready / 3 stalled, repeating, one pattern step per cycle.
+    // The pattern advances at every negedge, independent of acceptance,
+    // so outputs are consumed only on ready cycles. The scoreboard in the
+    // posedge always block checks every consumed output exactly once, in
+    // order, against its golden result/error, so a dropped or duplicated
+    // output under this toggling fails there, not only in this task.
+    task automatic submit_stream_toggling(input integer item_count);
+        integer idx;
+        integer pat;
+        logic accepted;
+        begin
+            idx = 0;
+            pat = 0;
+            @(negedge clk);
+            build_stream_item(idx);
+            in_valid = 1'b1;
+            out_ready = (pat % 5 < 2) ? 1'b1 : 1'b0;
+            pat = pat + 1;
+            while (idx < item_count) begin
+                @(posedge clk);
+                accepted = in_ready;
+                if (accepted) begin
+                    idx = idx + 1;
+                    if (idx < item_count) begin
+                        @(negedge clk);
+                        build_stream_item(idx);
+                        out_ready = (pat % 5 < 2) ? 1'b1 : 1'b0;
+                        pat = pat + 1;
+                    end
+                end else begin
+                    @(negedge clk);
+                    out_ready = (pat % 5 < 2) ? 1'b1 : 1'b0;
+                    pat = pat + 1;
+                end
+            end
+            @(negedge clk);
+            in_valid = 1'b0;
+            out_ready = 1'b1;
+        end
+    endtask
+
     task automatic wait_for_drain(input integer target_wr);
         integer guard;
         begin
@@ -380,6 +422,268 @@ module tb_fir_pipelined_engine #(
         coefficient_vector[31:0] = 32'sd65536;
         submit_one(6'd1, sample_vector, coefficient_vector);
         wait_for_drain(q_wr);
+
+        // ---------------------------------------------------------------
+        // U-A1–U-A6 (T3-6 §A.7). Existing tests above run first, so these
+        // additions cannot mask a failure in the original coverage. The
+        // scoreboard always block checks every consumed output in order
+        // against its golden result/error and cycles == LATENCY, so the
+        // drain-order claims below are checked there as well as in the
+        // held-field checks written out here.
+        // ---------------------------------------------------------------
+
+        // U-A1: multi-occupancy stall + drain order (legal/error mix).
+        // Two accepts happen before the first output (LATENCY >= 3, two
+        // submits span 2 cycles), then two more accepts, then the first
+        // output is held and checked while out_ready stays 0. The fifth
+        // item is submitted only after release: at LANES=4 STAGES=4, a
+        // fifth accept before release would block on a full pipe, so it
+        // cannot be an acceptance-order claim. Acceptance order 1..5 and
+        // drain order 1..5 are both checked by the scoreboard.
+        @(negedge clk);
+        out_ready = 1'b0;
+        sample_vector = '0;
+        coefficient_vector = '0;
+        sample_vector[31:0] = 32'sd65536;
+        coefficient_vector[31:0] = 32'sd32768;
+        submit_one(6'd1, sample_vector, coefficient_vector);
+        submit_one(6'd0, '0, '0);
+        sample_vector = '0;
+        coefficient_vector = '0;
+        sample_vector[0*32 +: 32] = 32'sd65536;
+        sample_vector[1*32 +: 32] = -32'sd32768;
+        sample_vector[2*32 +: 32] = 32'sd131072;
+        coefficient_vector[0*32 +: 32] = 32'sd16384;
+        coefficient_vector[1*32 +: 32] = 32'sd32768;
+        coefficient_vector[2*32 +: 32] = -32'sd16384;
+        submit_one(6'd3, sample_vector, coefficient_vector);
+        submit_one(6'(LANES + 1), '0, '0);
+        timeout = 0;
+        while (!out_valid && timeout < 30) begin
+            @(negedge clk);
+            timeout = timeout + 1;
+        end
+        if (!out_valid)
+            $fatal(1, "U-A1: no first output while stalled");
+        held_result = out_result;
+        held_error = out_error;
+        held_cycles = cycles;
+        if (held_result !== 32'sd32768 || held_error !== 1'b0 ||
+            held_cycles !== 16'(LATENCY))
+            $fatal(1, "U-A1: first stalled output wrong result=%0d error=%b cycles=%0d",
+                   held_result, held_error, held_cycles);
+        repeat (3) begin
+            @(posedge clk); #1;
+            if (!out_valid || out_result !== held_result ||
+                out_error !== held_error || cycles !== held_cycles)
+                $fatal(1, "U-A1: first output changed while stalled");
+        end
+        @(negedge clk);
+        out_ready = 1'b1;
+        sample_vector = '0;
+        coefficient_vector = '0;
+        sample_vector[31:0] = 32'h7fffffff;
+        coefficient_vector[31:0] = 32'h7fffffff;
+        submit_one(6'd1, sample_vector, coefficient_vector);
+        wait_for_drain(q_wr);
+
+        // U-A2: partial stall + bubble compression. The toggling driver
+        // (2 ready / 3 stalled, repeating) plus the scoreboard prove
+        // exactly one output per accepted input, in order, with golden
+        // values, and therefore no drop and no duplicate. The
+        // "in_ready only while genuinely full" clause is not re-asserted
+        // cycle-by-cycle here; full-pipe in_ready==0 is already asserted
+        // by the original backpressure test above.
+        submit_stream_toggling(24);
+        wait_for_drain(q_wr);
+        if (q_rd !== q_wr)
+            $fatal(1, "U-A2: drain incomplete rd=%0d wr=%0d", q_rd, q_wr);
+
+        // U-A3: error response held under backpressure.
+        // First: error at the output, then a legal item, then an error
+        // behind it, all accepted while out_ready is 0.
+        @(negedge clk);
+        out_ready = 1'b0;
+        submit_one(6'd0, '0, '0);
+        sample_vector = '0;
+        coefficient_vector = '0;
+        sample_vector[31:0] = 32'sd65536;
+        coefficient_vector[31:0] = 32'sd32768;
+        submit_one(6'd1, sample_vector, coefficient_vector);
+        submit_one(6'd63, '0, '0);
+        timeout = 0;
+        while (!out_valid && timeout < 30) begin
+            @(negedge clk);
+            timeout = timeout + 1;
+        end
+        if (!out_valid)
+            $fatal(1, "U-A3: no error output while stalled");
+        held_result = out_result;
+        held_error = out_error;
+        held_cycles = cycles;
+        if (held_result !== 32'sd0 || held_error !== 1'b1 ||
+            held_cycles !== 16'(LATENCY))
+            $fatal(1, "U-A3: stalled error output wrong result=%0d error=%b cycles=%0d",
+                   held_result, held_error, held_cycles);
+        repeat (3) begin
+            @(posedge clk); #1;
+            if (!out_valid || out_result !== held_result ||
+                out_error !== held_error || cycles !== held_cycles)
+                $fatal(1, "U-A3: stalled error output changed");
+        end
+        @(negedge clk);
+        out_ready = 1'b1;
+        wait_for_drain(q_wr);
+        // Second: error behind a stalled legal output.
+        @(negedge clk);
+        out_ready = 1'b0;
+        sample_vector = '0;
+        coefficient_vector = '0;
+        sample_vector[31:0] = 32'sd131072;
+        coefficient_vector[31:0] = 32'sd65536;
+        submit_one(6'd1, sample_vector, coefficient_vector);
+        submit_one(6'd0, '0, '0);
+        timeout = 0;
+        while (!out_valid && timeout < 30) begin
+            @(negedge clk);
+            timeout = timeout + 1;
+        end
+        if (!out_valid)
+            $fatal(1, "U-A3: no legal output while stalled (second sequence)");
+        held_result = out_result;
+        held_error = out_error;
+        held_cycles = cycles;
+        if (held_result !== 32'sd131072 || held_error !== 1'b0 ||
+            held_cycles !== 16'(LATENCY))
+            $fatal(1, "U-A3: stalled legal output wrong result=%0d error=%b cycles=%0d",
+                   held_result, held_error, held_cycles);
+        repeat (3) begin
+            @(posedge clk); #1;
+            if (!out_valid || out_result !== held_result ||
+                out_error !== held_error || cycles !== held_cycles)
+                $fatal(1, "U-A3: stalled legal output changed (second sequence)");
+        end
+        @(negedge clk);
+        out_ready = 1'b1;
+        wait_for_drain(q_wr);
+
+        // U-A4: cycles_o under stall is LATENCY, not elapsed time.
+        @(negedge clk);
+        out_ready = 1'b0;
+        sample_vector = '0;
+        coefficient_vector = '0;
+        sample_vector[31:0] = 32'sd65536;
+        coefficient_vector[31:0] = 32'sd32768;
+        submit_one(6'd1, sample_vector, coefficient_vector);
+        timeout = 0;
+        while (!out_valid && timeout < 30) begin
+            @(negedge clk);
+            timeout = timeout + 1;
+        end
+        if (!out_valid)
+            $fatal(1, "U-A4: no output while stalled");
+        held_result = out_result;
+        held_error = out_error;
+        held_cycles = cycles;
+        if (held_cycles !== 16'(LATENCY))
+            $fatal(1, "U-A4: cycles before long stall wrong got=%0d expected=%0d",
+                   held_cycles, LATENCY);
+        repeat (10) begin
+            @(posedge clk); #1;
+            if (!out_valid || out_result !== held_result ||
+                out_error !== held_error || cycles !== 16'(LATENCY))
+                $fatal(1, "U-A4: cycles/result changed during 10-cycle stall got cycles=%0d",
+                       cycles);
+        end
+        @(negedge clk);
+        out_ready = 1'b1;
+        wait_for_drain(q_wr);
+        // After the drain, the next slot is a bubble: valid 0, cycles 0.
+        // wait_for_drain exits at a negedge after the consuming posedge,
+        // by which time cycles_q has updated to 0 for the empty slot.
+        if (out_valid || cycles !== 16'd0)
+            $fatal(1, "U-A4: bubble after drain wrong valid=%b cycles=%0d",
+                   out_valid, cycles);
+
+        // U-A5: reset with a full pipe, then post-reset behaviour.
+        // submit_stream fills all STAGES with out_ready 0, exactly as in
+        // the original backpressure test, so in_ready must already be 0
+        // and out_valid 1 before reset is asserted.
+        @(negedge clk);
+        out_ready = 1'b0;
+        submit_stream(STAGES);
+        if (!out_valid)
+            $fatal(1, "U-A5: no valid output in full pipe before reset");
+        if (in_ready)
+            $fatal(1, "U-A5: input not backpressured in full pipe before reset");
+        @(negedge clk);
+        rst = 1'b1;
+        @(posedge clk); #1;
+        if (out_valid)
+            $fatal(1, "U-A5: reset did not clear full-pipe output valid");
+        @(negedge clk);
+        rst = 1'b0;
+        out_ready = 1'b1;
+        repeat (STAGES + 1) begin
+            @(posedge clk); #1;
+            if (out_valid)
+                $fatal(1, "U-A5: stale output reappeared after full-pipe reset");
+        end
+        sample_vector = '0;
+        coefficient_vector = '0;
+        sample_vector[31:0] = 32'sd131072;
+        coefficient_vector[31:0] = 32'sd65536;
+        submit_one(6'd1, sample_vector, coefficient_vector);
+        wait_for_drain(q_wr);
+
+        // U-A6: capture into an empty output slot while out_ready is 0.
+        // The pipe is empty here (previous drain completed), so the
+        // accept edge below is the explicit capture check: in_ready must
+        // be 1 at that edge even though out_ready is 0.
+        if (out_valid)
+            $fatal(1, "U-A6: pipe not empty before capture test");
+        @(negedge clk);
+        out_ready = 1'b0;
+        @(negedge clk);
+        in_valid = 1'b1;
+        tap_count = 6'd1;
+        sample_vector = '0;
+        coefficient_vector = '0;
+        sample_vector[31:0] = 32'sd65536;
+        coefficient_vector[31:0] = 32'sd32768;
+        @(posedge clk);
+        if (!in_ready)
+            $fatal(1, "U-A6: empty-output capture not accepted while out_ready=0");
+        @(negedge clk);
+        in_valid = 1'b0;
+        timeout = 0;
+        while (!out_valid && timeout < 30) begin
+            @(negedge clk);
+            timeout = timeout + 1;
+        end
+        if (!out_valid)
+            $fatal(1, "U-A6: no output after empty-slot capture");
+        held_result = out_result;
+        held_error = out_error;
+        held_cycles = cycles;
+        if (held_result !== 32'sd32768 || held_error !== 1'b0 ||
+            held_cycles !== 16'(LATENCY))
+            $fatal(1, "U-A6: captured output wrong result=%0d error=%b cycles=%0d",
+                   held_result, held_error, held_cycles);
+        repeat (3) begin
+            @(posedge clk); #1;
+            if (!out_valid || out_result !== held_result ||
+                out_error !== held_error || cycles !== held_cycles)
+                $fatal(1, "U-A6: captured output dropped while stalled");
+        end
+        @(negedge clk);
+        out_ready = 1'b1;
+        wait_for_drain(q_wr);
+
+        // Fingerprint line: this $display only prints if every U-A1-U-A6
+        // check above reached it without $fatal, so a Mac paste containing
+        // it proves the new scenarios ran, not just the original tests.
+        $display("PASS: U-A1-U-A6 pipelined stall/error scenarios");
 
         if (LANES == 32)
             $display("PASS: NEXUS-32 pipelined FIR arithmetic, 1/cycle throughput, backpressure, errors, and reset tests");

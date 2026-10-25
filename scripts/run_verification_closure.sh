@@ -8,10 +8,26 @@ LOG="$OUT/verification-closure.log"
 COMMANDS="$OUT/commands.txt"
 STATUS="$OUT/status.tsv"
 
+# Simulator gate BEFORE any truncation: a run that cannot start must not
+# destroy prior local evidence (results/verification-closure/ is
+# gitignored, so truncated files are not recoverable from git). This gate
+# is intentionally minimal — record_status and REQUIRED_TESTS are defined
+# below and must not be referenced here. See docs/VERIFICATION_CLOSURE.md.
+if ! command -v iverilog >/dev/null 2>&1 || ! command -v vvp >/dev/null 2>&1; then
+  printf 'ERROR: required simulator tools are missing; iverilog and vvp are mandatory.\n' >&2
+  printf 'CANNOT_RUN: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > "$OUT/CANNOT_RUN"
+  printf 'Reason: mandatory simulator (iverilog and/or vvp) is missing.\n' >> "$OUT/CANNOT_RUN"
+  printf 'The existing verification-closure.log, commands.txt and status.tsv in this directory are from a prior run and are NOT evidence from this run.\n' >> "$OUT/CANNOT_RUN"
+  printf 'FAIL: verification closure gate could not run because a mandatory simulator is missing.\n' >&2
+  exit 1
+fi
+
 : > "$LOG"
 : > "$COMMANDS"
 : > "$STATUS"
 printf 'test\tstatus\tdetail\n' > "$STATUS"
+# A runnable run clears any stale cannot-run marker left by an earlier run.
+rm -f "$OUT/CANNOT_RUN"
 exec > >(tee "$LOG") 2>&1
 
 passed_tests=0
@@ -148,16 +164,6 @@ REQUIRED_TESTS=(
   acceptance_config_stage_l32
 )
 
-if ! command -v iverilog >/dev/null 2>&1 || ! command -v vvp >/dev/null 2>&1; then
-  printf 'ERROR: required simulator tools are missing; iverilog and vvp are mandatory.\n'
-  for test_name in "${REQUIRED_TESTS[@]}"; do
-    record_status "$test_name" NOT_RUN "mandatory simulator prerequisite is missing"
-  done
-  printf 'FAIL: verification closure gate could not run because a mandatory simulator is missing.\n'
-  printf 'Status report: %s\n' "$STATUS"
-  exit 1
-fi
-
 run_block_1024() {
   local lanes="$1"
   run_iverilog_test \
@@ -245,6 +251,17 @@ run_fixed_lane_acceptance \
   acceptance_config_stage_l32 \
   tb_fir_seq_accel_config_stage \
   tests/rtl/tb_fir_seq_accel_config_stage.sv
+
+# Enforce the declared gate: REQUIRED_TESTS was previously defined but never
+# checked, so a deleted/renamed run_* call could silently shrink the gate and
+# still print PASS. Every required test must appear in status.tsv as PASS;
+# anything else fails the gate, even if no individual test reported FAIL.
+for required_test in "${REQUIRED_TESTS[@]}"; do
+  if ! grep -q "^${required_test}	PASS	" "$STATUS"; then
+    printf 'FAIL: required test %s did not complete with PASS status.\n' "$required_test"
+    failed_tests=$((failed_tests + 1))
+  fi
+done
 
 printf '\nVerification gate summary: PASS=%d FAIL=%d NOT_RUN=%d\n' \
   "$passed_tests" "$failed_tests" "$not_run_tests"

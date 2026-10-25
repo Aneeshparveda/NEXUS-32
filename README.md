@@ -191,11 +191,7 @@ Before running any checks, `make test` requires
 `vendor/picorv32/picorv32.v`, its matching `REVISION.txt`, and
 `firmware/nexus32_smoke.hex`. If the pinned vendor source is absent or
 unverified, it fails with a message directing you to `make setup` instead of
-silently skipping the SoC checks. The gate then runs, in order, the Python
-unit suite, RISC-V toolchain smoke check, RTL smoke regression, three-way
-differential FIR regression, all-lane SoC smoke regression, Basys 3
-wrapper/XDC consistency check, the offline Vivado-flow stub, Verilator lint,
-and the complete verification-closure gate.
+silently skipping the SoC checks. The gate then runs, in order, the `Makefile:32` `test` targets `status-property, check-prerequisites, python-tests, toolchain, rtl, differential, soc, soc-latency, basys3, vivado-flow-stub, provenance-test, verilator, verification-closure`.
 The flow stub verifies that the success path creates the expected summaries
 and that an injected mandatory-stage failure returns exit code 1 while
 skipping later stages; it does not replace Vivado synthesis or timing
@@ -303,7 +299,7 @@ flow completes successfully on a machine with the licensed tool and hardware.
 
 ## Verification commands
 
-These are the project-level verification commands currently available:
+These are the principal verification commands (not the full gate — see `Makefile:32`):
 
 ```bash
 make test
@@ -316,7 +312,9 @@ python3 scripts/check_basys3_constraints.py
 bash scripts/run_verification_closure.sh
 ```
 
-`make test` is the canonical offline entry point for this complete sequence;
+It omits the status-property, soc-latency, and provenance-test gate steps, the Verilator lint step, `make test-fault`, and the manual runners listed below.
+
+`make test` is the canonical offline entry point for the `make test` sequence (excluding `make test-fault` and the manual runners listed below);
 its `differential` target runs the existing three-way FIR smoke script for
 `LANES=4, 8, 16, 32`.
 The Python command checks the signed Q16.16 reference behavior, saturation
@@ -330,19 +328,75 @@ Makefile adds the Basys 3 XDC check and the same `--Wall --Wno-fatal`
 Verilator lint configuration used by CI before invoking the verification
 closure gate.
 
-The verification-closure command is the canonical pure-RTL gate. It runs the independent 1024-sample block/timing scoreboard, direct pipelined-latency experiments, the 75-case block-processing acceptance suite for `LANES=4, 8, 16, 32`, and the fixed-`LANES=32` block-configuration and configuration-stage acceptance benches. Its generated binaries, per-test status report and logs are written under ignored `results/verification-closure/`; the durable results summary and reproduction details are in [`docs/VERIFICATION_CLOSURE.md`](docs/VERIFICATION_CLOSURE.md). Missing mandatory tools or tests and any compile/simulation failure produce a nonzero gate exit.
+The verification-closure command is the canonical pure-RTL gate. It runs the independent 1024-sample block/timing scoreboard, direct pipelined-latency experiments, the block-processing acceptance suite for `LANES=4, 8, 16, 32` (the 75-cases-per-lane figure at `docs/VERIFICATION_CLOSURE.md:143` is reset-race coverage, not this suite), and the fixed-`LANES=32` block-configuration and configuration-stage acceptance benches. Its generated binaries, per-test status report and logs are written under ignored `results/verification-closure/`; the durable results summary and reproduction details are in [`docs/VERIFICATION_CLOSURE.md`](docs/VERIFICATION_CLOSURE.md). Missing mandatory tools or tests and any compile/simulation failure produce a nonzero gate exit.
 
 ### Targeted Wave A/B verification
 
-The targeted regression runners added after the closure receipt are:
+The targeted regression runners added after the closure receipt fall into
+two groups: gated commands, and manual runners that are not in any gate.
+The grouping below overrides any reading of the previous listing that
+implied all of these commands were gate members.
+
+Gated commands in this group:
+
+```bash
+make test-fault
+make test-all
+```
+
+`make test-fault` is a member of `make test-all` and of the CI job, but
+not of `make test` itself.
+
+> **Gate-membership note — 2026-10-25 (autonomous lab, working copy HEAD
+> `db7cd79`).** No step of `make test`, `make test-all`, or
+> `.github/workflows/nexus32-ci.yml` invokes the four manual runners
+> below, so a failure in any of them does not cause `make test`,
+> `make test-all`, or the CI job to fail. `make test` and CI are not the
+> same gate: CI does not run `make test` or `make test-all`; it
+> enumerates its own steps, so wiring a runner into a gate must be added
+> to both the Makefile and CI to gate in both. Non-gating does not mean
+> optional or skippable: a PASS here remains the only evidence for
+> CPU-driven subword access, CPU-driven 1024-sample blocks,
+> protected-access sweep behaviour, and Python-model-versus-engine
+> agreement, and these runners must still be run after any RTL or
+> firmware change touching those paths before the corresponding claim is
+> made. Wiring decision deferred on 2026-10-25 for a stated reason: this
+> environment has no simulator with which to sim-validate gate wiring,
+> so wiring blind would itself be an unverified gate change. This note
+> is disclosure only, not a decision not to wire. `run_golden_regression.py`,
+> `run_subword_smoke.sh`, and `run_soc_block_1024.sh all` are wireable
+> as-is as single steps (each builds its own firmware);
+> `run_protected_access_smoke.sh all` is not wireable as a sweep without
+> per-lane firmware work, since `LANES<32` fails preflight — and
+> explicit `run_protected_access_smoke.sh 32` is wireable only after
+> the script-label fix below, because `run_lane` still prints a
+> "lane sweep" PASS line for a single lane.
+> Exception: the *bench* `tb_nexus32_soc_protected_access` (not the sweep
+> runner) is exercised by `scripts/run_rtl_smoke.sh` at its default
+> `LANES=32` with no `-P LANES` override, sequential architecture only,
+> `SAMPLE_COUNT=1`, `TAP_COUNT=32`, and only when
+> `vendor/picorv32/picorv32.v` and `firmware/nexus32_smoke.hex` are
+> present; otherwise that script prints SKIP and still passes. Under
+> `make test` / `make test-all` / CI the prerequisites are provisioned
+> first, so the bench is then hard-gated. That exception covers one
+> bench at one lane and one architecture; it is not multi-lane or
+> multi-architecture protected-access coverage. Do not quote
+> `PASS: protected-access lane sweep LANES=32` from
+> `run_protected_access_smoke.sh all` as sweep evidence: in `all` mode
+> it ran one lane (the `LANES=32` fallback), not a sweep. Fixing that
+> script label is deferred work, recorded in the lab backlog, not
+> completed by this note. The closure gate's pure-RTL
+> `tb_fir_seq_accel_block_1024` (no CPU, no firmware) is gated via
+> `run_verification_closure.sh`; it does not cover the CPU-driven
+> `tb_nexus32_soc_block_1024` path, which remains non-gating.
+
+Manual runners (not in `make test`, `make test-all`, or CI):
 
 ```bash
 python3 scripts/run_golden_regression.py
 bash scripts/run_subword_smoke.sh
 bash scripts/run_soc_block_1024.sh all
 bash scripts/run_protected_access_smoke.sh all
-make test-fault
-make test-all
 ```
 
 `run_golden_regression.py` compares the existing Python model with all three
@@ -374,13 +428,13 @@ validation remain unverified.
 `.github/workflows/nexus32-ci.yml` runs on pushes and pull requests targeting
 `main`, and can also be started manually. On `ubuntu-24.04` it installs
 Icarus/VVP, Verilator, the `riscv64-unknown-elf` compiler/binutils, and
-provisions the pinned PicoRV32 revision before running the Python, toolchain,
+provisions the pinned PicoRV32 revision before running its 19 named steps, including the Python, toolchain,
 RTL smoke, three-way differential FIR, four-lane SoC smoke, and complete
 verification-closure checks.
 Verilator uses `--Wall --Wno-fatal`: warnings remain visible in the log and
 uploaded artifact, while Verilator errors still fail the job.
 
-The principal CI sequence can be reproduced locally after installing the same
+Selected CI steps can be reproduced locally after installing the same
 tools with:
 
 ```bash
@@ -394,6 +448,8 @@ bash scripts/run_rtl_smoke.sh
 bash scripts/run_soc_smoke.sh all
 bash scripts/run_verification_closure.sh
 ```
+
+This block is abridged, not a full CI reproduction: among the check steps, it omits the STATUS property regression, firmware latency regression, offline Vivado flow stub, Basys-3 check, characterization provenance test, Verilator lint, three-way differential FIR regression, and CPU bridge fault-data regression (`make test-fault`).
 
 CI retains the compact closure status, commands, per-test logs, and Verilator
 lint log as workflow artifacts. Passing CI is simulation and toolchain

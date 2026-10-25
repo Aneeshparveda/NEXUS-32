@@ -684,6 +684,30 @@ backpressure results are retained separately because stalled elapsed latency is
 not the same metric as nominal pipeline depth.  Until this experiment is run,
 pipeline latency is **UNVERIFIED**.
 
+> **Lab addendum — 2026-10-25 (autonomous lab, working copy HEAD `db7cd79`;
+> §11's recheck basis remains `74f4f66` and is not upgraded by this note).
+> The §9 text above is preserved verbatim. This addendum does not amend
+> §9's normative requirements; it only resolves a label tension inside this
+> document. §11 of this contract marks pipeline latency **TEST-PROVEN** via
+> `tests/rtl/tb_fir_pipelined_latency.sv` at LANES 4, 8, 16, and 32, and
+> `docs/VERIFICATION_CLOSURE.md` ("Direct pipelined-engine latency") records
+> transfer-edge latency `TREE_LEVELS+2` with nominal `cycles_o`
+> `TREE_LEVELS+1`. Read §9's "UNVERIFIED" as superseded **only** for those
+> transfer-edge latency values. The `+1` value was not wrong: RTL
+> `LATENCY = DEPTH+1` is the nominal field by design, and `+2` is the
+> transfer-edge convention; the two must not be conflated.
+> Three §9 items are **not** closed by this addendum and stay open:
+> (1) evidence form — the cited bench evidence is sampled-edge trace
+> (`valid && ready` before NBA), not a waveform/VCD file, so §9's literal
+> "waveform" wording is not satisfied; (2) scope — the cited evidence covers
+> post-reset fresh-stream accounting, not a mid-stream reset-flush with a
+> full pipeline; (3) durable metadata — no committed, durable
+> machine-readable metadata artifact is present (bench JSON and closure-log
+> headers exist only under git-ignored `results/` in a normal run).
+> For those reasons the §12.7 timing/characterization boxes remain
+> **unchecked** in this change; §12.7 remains the gate, and this addendum
+> does not substitute for it.
+
 ## 10. Fair PPA and performance characterization contract
 
 Characterization shall distinguish architecture area from selector/system area.
@@ -742,8 +766,8 @@ these labels are not blanket verification claims.
 | START while BUSY | **TEST-PROVEN** | `tests/rtl/tb_fir_seq_accel_block_config.sv` and `tests/rtl/tb_fir_seq_accel_config_stage.sv` issue START while busy and check `rsp_error=0`, preserved BUSY/ownership, unchanged debug state, and normal continuation; other configuration writes remain rejected. Command: `bash scripts/run_verification_closure.sh`. Current decode is in `rtl/fir_seq_accel.sv:397-424`. |
 | Preflight versus internal fault separation | **TEST-PROVEN** | `tests/rtl/tb_fir_seq_accel_block_config.sv` and `tests/rtl/tb_fir_seq_accel_block_processing.sv` check well-formed invalid START completion with `rsp_error=0`, no ownership or memory access, `INVALID_CONFIG`, and zero counters; the same suites inject BRAM/commit faults and check ERROR termination, partial validity, and RESET-only recovery. Command: `bash scripts/run_verification_closure.sh`. |
 | Reserved `AUTO_*`, version, and build registers | **INSPECTION-ONLY** | Current RTL defines `AUTO_CFG`, `AUTO_SELECTED`, `AUTO_MODEL_ID`, `CONTRACT_VERSION`, and `BUILD_ID`, returns zero on reads, and routes unsupported writes to the error path (`rtl/fir_seq_accel.sv:90-105,950-975`). `tests/rtl/tb_nexus32_accel_bus.sv` directly checks `AUTO_CFG` and an unlisted CSR, but does not directly exercise every reserved offset, so the complete row is not test-proven. Command for the partial coverage: `bash scripts/run_rtl_smoke.sh`. |
-| Pipeline latency | **TEST-PROVEN** | `tests/rtl/tb_fir_pipelined_latency.sv` measures the direct engine at LANES 4, 8, 16, and 32, including fill, steady state, drain, output backpressure, output stability, and input-edge to output-transfer-edge latency. Command: `bash scripts/run_verification_closure.sh`. The measured transfer-edge convention is documented in `docs/VERIFICATION_CLOSURE.md:127-148`. |
-| Vivado characterization | **UNVERIFIED** | The repository provides an OOC flow, but no Vivado run receipt is present. The flow explicitly excludes CPU, bus, BRAM gather, and arbitration (`vivado/README.md:79-118`). `docs/STATUS.md:49` records that no real Vivado synthesis, implementation timing, utilization, DRC, or bitstream generation has been run. |
+| Pipeline latency | **TEST-PROVEN** | `tests/rtl/tb_fir_pipelined_latency.sv` measures the direct engine at LANES 4, 8, 16, and 32, including fill, steady state, drain, output backpressure, output stability, and input-edge to output-transfer-edge latency. Command: `bash scripts/run_verification_closure.sh`. The measured transfer-edge convention is documented in `docs/VERIFICATION_CLOSURE.md:149-170` (section "Direct pipelined-engine latency"). [Lab note 2026-10-25: the pre-note range 127-148 pointed at the partial-fault matrix tail, not the latency section; range corrected, bench description unchanged.] |
+| Vivado characterization | **UNVERIFIED** | The repository provides an OOC flow, but no Vivado run receipt is present. The flow explicitly excludes CPU, bus, BRAM gather, and arbitration (`vivado/README.md:135-138`, OOC Interpretation Limits). [Lab note 2026-10-25: the pre-note range 79-118 describes the integrated build flow, not the OOC exclusion; `vivado/README.md:116-118` still supports the "no run claimed" half.] `docs/STATUS.md:49` records that no real Vivado synthesis, implementation timing, utilization, DRC, or bitstream generation has been run. |
 | Physical hardware validation | **UNVERIFIED** | No bitstream programming, physical Basys 3 observation, or board measurement is recorded. `docs/STATUS.md:49` and `docs/PICORV32_PIN.md:22` retain the boundary that FPGA implementation and physical behavior remain unverified. |
 
 The current implementation evidence is therefore mixed: rows marked
