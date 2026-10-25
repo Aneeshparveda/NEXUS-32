@@ -3,7 +3,7 @@
 ![SystemVerilog](https://img.shields.io/badge/RTL-SystemVerilog-blue.svg)
 
 > **Status — read this first:** Simulation + CI verified
-> (remote HEAD 868ef6b, CI run #7, all 23 steps). Vivado synthesis,
+> (remote HEAD dabb71b, CI run #8, all 23 steps). Vivado synthesis,
 > timing, bitstream, and physical Basys 3 board validation are
 > **not yet claimed** — they are the laptop-day / board phase, not
 > done yet. SoC latency of **129 cycles is a LANES=32 simulation
