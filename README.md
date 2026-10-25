@@ -1,9 +1,5 @@
 <div align="center">
 
-![NEXUS-32 header](https://capsule-render.vercel.app/api?type=waving&color=0:0a1628,100:0e7490&height=180&section=header&text=NEXUS-32&fontSize=64&fontColor=22d3ee&animation=fadeIn&desc=PicoRV32%20FIR%20SoC%20on%20Basys%203&descAlignY=75)
-
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&size=20&duration=3000&pause=800&color=22D3EE&center=true&vCenter=true&width=700&lines=Three+FIR+architectures.+One+numerical+contract.;Sequential.+Parallel.+Pipelined.+Measured%2C+not+claimed.;Simulation-proven.+Board+run+pending.)](https://github.com/Aneeshparveda/NEXUS-32)
-
 # NEXUS-32 — PicoRV32 FIR SoC
 
 **One SoC. Three FIR engines. One frozen Q16.16 contract. Every number below is simulation evidence — or it is labelled as not yet measured.**
@@ -19,11 +15,11 @@
 
 > **⚠️ Status — read this first:** Simulation + CI verified. Vivado synthesis, timing, bitstream, and physical Basys 3 board validation are **not yet claimed** — they are the laptop-day / board phase, not done yet. SoC latency of **129 cycles is a LANES=32 simulation latency only** (START-to-verdict), not a board measurement and not `CYCLES_TOTAL`. No LUT / DSP / WNS numbers are claimed here, because no Vivado run has produced them yet.
 >
-> Current HEAD: `21d2db4` (community-standards files). Last CI run verified end-to-end: run #8 on `dabb71b`. CI status for `21d2db4` itself has not been checked yet — <!-- TODO: verify CI run for 21d2db4 -->.
+> Detailed status (current HEAD, CI, and what is and is not claimed): [docs/STATUS.md](docs/STATUS.md).
 
 ## Why this exists
 
-Most FIR-accelerator demos show one architecture and one number. NEXUS-32 asks a harder, more useful question: given the **same** numerical contract, the **same** SoC, and the **same** test vectors, how do a sequential, a parallel, and a pipelined FIR engine actually differ? The answer is measured in cycles, reproduced by a Python golden model, and checked by a CI gate — not asserted in a slide.
+Most FIR-accelerator demos show one architecture and one number. NEXUS-32 asks a harder question: given the **same** numerical contract, the **same** SoC and the **same** test vectors, how do a sequential, a parallel and a pipelined FIR engine differ? Numerical behaviour is specified by a bit-exact Python golden model, and a CI workflow runs the simulation and toolchain regression. The cycle counts in Results come from the serialized integrated shell, so they are not standalone architecture throughput; the pipelined count rises with LANES because the shell dominates.
 
 ## At a glance
 
@@ -36,7 +32,7 @@ Most FIR-accelerator demos show one architecture and one number. NEXUS-32 asks a
 | **Block range** | `SAMPLE_COUNT` 1..1024, zero-initialised history, `RESULT_COUNT` counts only successful commits |
 | **LANES** | 4, 8, 16, 32 (integrated shell defaults to 32; board wrapper defaults to 16 — wrapper vs shell, both stated) |
 | **Firmware** | Bare-metal RV32I assembly only — no C firmware |
-| **Evidence** | Simulation + CI only. Board evidence: <!-- TODO: add Vivado reports, bitstream SHA, board photo --> |
+| **Evidence** | Simulation + CI only. Board evidence: none yet |
 
 <!-- TODO: add demo — no demo GIF, screenshot, or video exists in the repo yet. A short screen recording of `make test` passing, or a board LED demo once the board phase runs, belongs here. -->
 
@@ -44,12 +40,12 @@ Most FIR-accelerator demos show one architecture and one number. NEXUS-32 asks a
 
 | Feature | What it actually is |
 |---|---|
-| 🔀 **Runtime architecture selector** | Switch Sequential / Parallel / Pipelined at run time via `ARCH_SEL`; invalid arch/tap requests become error responses, not silent garbage |
-| 🔒 **BRAM-ownership interlock** | Host cannot read/write owned coefficient/sample/result memory mid-run (`MEM_OWNERSHIP`, `0xBAD0_0001`); result writes are forbidden outright |
-| 🧮 **Bit-exact golden model** | `golden_model/fir_q16.py` is the executable Python reference the RTL is differentially tested against |
-| 🛡️ **Fault paths, tested** | Invalid fetch, invalid arch, invalid tap, protected access, timeout, sub-word access, reset recovery — all with benches, not just happy paths |
-| 📦 **One-command reproduction** | `make setup` once (networked), then `make test` fully offline; Docker image reproduces the same gate |
-| 🧪 **Verification closure gate** | Independent 1024-sample block/timing scoreboard, 15 PASS / 0 FAIL in the closure receipt |
+| **Runtime architecture selector** | Switch Sequential / Parallel / Pipelined at run time via `ARCH_SEL`; invalid arch/tap requests become error responses, not silent garbage |
+| **BRAM-ownership interlock** | Host cannot read/write owned coefficient/sample/result memory mid-run (`MEM_OWNERSHIP`, `0xBAD0_0001`); result writes are forbidden outright |
+| **Bit-exact golden model** | `golden_model/fir_q16.py` is the executable Python reference the RTL is differentially tested against |
+| **Fault paths, tested** | Invalid fetch, invalid arch, invalid tap, protected access, timeout, sub-word access, reset recovery — all with benches, not just happy paths |
+| **One-command reproduction** | `make setup` once (networked), then `make test` fully offline; Docker image reproduces the same gate |
+| **Verification closure gate** | Independent 1024-sample block/timing scoreboard, 15 PASS / 0 FAIL in the closure receipt |
 
 ## Architecture
 
@@ -134,6 +130,8 @@ Dashed boxes are **not yet done**. That is deliberate: the diagram must never be
 
 **Not throughput. Not MHz. Not LUT/DSP. Not board results.** Functional block-processing cycle counts from `docs/VERIFICATION_CLOSURE.md` (receipt 2026-10-18, Icarus 13.0; 1024 samples, `TAP_COUNT = 3`). The integrated shell serializes to one outstanding operation, so these are **not** standalone architecture throughput or PPA measurements — and pipelined cycles **rise** with LANES because the serialized shell dominates. That caveat travels with the table; do not drop it.
 
+The pipelined count rises by exactly 1024 cycles per LANES doubling (8198, 9222, 10246, 11270).
+
 ![CYCLES_TOTAL at LANES=4](assets/cycles-lanes4.svg)
 
 | LANES | Sequential `CYCLES_TOTAL` | Parallel `CYCLES_TOTAL` | Pipelined `CYCLES_TOTAL` |
@@ -197,8 +195,10 @@ Deterministic integrated Vivado flow (requires Vivado 2024.2 + licence + board; 
 ```bash
 vivado -mode batch -nojournal -nolog \
   -source vivado/build_basys3.tcl \
-  -tclargs results/vivado/basys3 16
+  -tclargs results/vivado/basys3 4
 ```
+
+LANES=4 is the recommended first run; the LANES=16 default is a candidate pending Vivado utilisation.
 
 First argument: output directory. Second: lane count (`4`, `8`, `16`, or `32`). Summaries and reports land under the ignored output directory (`build_summary.tsv`, `build_summary.md`). A successful exit requires all mandatory stages through bitstream generation to pass.
 
@@ -295,7 +295,7 @@ results/        Generated simulation outputs (not committed in bulk)
 - [x] Differential + SoC benches, verification closure (15 PASS / 0 FAIL), CI gate (19 named steps)
 - [x] Basys 3 wrapper + XDC source-integrated
 - [ ] Vivado OOC characterisation (LANES sweep) — laptop-day phase
-- [ ] Board builds LANES=4 and LANES=16, bitstream + LED telemetry + dated photos
+- [ ] Board builds starting with LANES=4 (board LANES is chosen after Vivado synthesis utilisation is known; LANES=16 is a candidate, not a promised fit): bitstream + LED telemetry + dated photos
 - [ ] Release v1.0.0: README results with real Vivado numbers, per-arch `.bit` in Releases
 - [ ] After v1.0.0: UART/data channel, C firmware, formal checks, power analysis
 
@@ -321,8 +321,6 @@ Sole technical/system owner: **Aneesh Parveda**. Vivado/timing/bring-up support:
 ---
 
 <div align="center">
-
-![NEXUS-32 footer](https://capsule-render.vercel.app/api?type=waving&color=0:0e7490,100:0a1628&height=120&section=footer&text=Star%20NEXUS-32%20if%20reproducible%20hardware%20is%20your%20thing&fontSize=16&fontColor=22d3ee)
 
 *Simulation-proven today. Board-proven is the next milestone — and this README will say so, honestly, when it happens.*
 
