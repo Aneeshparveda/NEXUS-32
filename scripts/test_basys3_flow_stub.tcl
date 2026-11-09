@@ -5,8 +5,8 @@
 # propagation without requiring Vivado or a license.
 
 set requested_argv $::argv
-if {[llength $requested_argv] != 2} {
-    puts stderr "usage: tclsh scripts/test_basys3_flow_stub.tcl <output_dir> <LANES>"
+if {[llength $requested_argv] < 2 || [llength $requested_argv] > 3} {
+    puts stderr "usage: tclsh scripts/test_basys3_flow_stub.tcl <output_dir> <LANES> \[<SYS_CLK_MHZ>\]"
     exit 2
 }
 
@@ -96,6 +96,25 @@ proc write_bitstream {args} {
 
 proc report_property {args} {
     write_stub_artifact [report_path $args] "stub properties"
+}
+
+# Optional netlist queries for the post-synthesis IMEM guard. Without
+# STUB_IMEM_BRAMS these commands stay undefined and the guard reports that
+# the check was skipped. none = no IMEM block RAM (empty ROM optimized away),
+# zero = IMEM block RAMs with all-zero INIT_00, loaded = initialized IMEM.
+if {[info exists ::env(STUB_IMEM_BRAMS)]} {
+    proc get_cells {args} {
+        if {$::env(STUB_IMEM_BRAMS) eq "none"} {
+            return [list]
+        }
+        return [list u_soc/imem_reg_0 u_soc/imem_reg_1]
+    }
+    proc get_property {args} {
+        if {$::env(STUB_IMEM_BRAMS) eq "zero"} {
+            return "256'h[string repeat 0 64]"
+        }
+        return "256'h[string repeat 0 56]DEADBEEF"
+    }
 }
 
 set script_root [file normalize [file join [file dirname [info script]] ..]]

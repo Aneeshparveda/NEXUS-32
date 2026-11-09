@@ -101,13 +101,24 @@ Windows has no bash or RISC-V toolchain, so the flow defaults to
 `bash scripts/make_vivado_bundle.sh`, verifies the pinned revision, the
 PicoRV32 SHA-256 (when Tcl's `sha256` package is available) and the 4096-word
 firmware image, and never calls bash, git or the toolchain. Run
-`vivado\RUN_VIVADO_BASYS3.bat <LANES>`. The full procedure is in
+`vivado\RUN_VIVADO_BASYS3.bat <LANES> [MHZ]`. The full procedure is in
 [`docs/VIVADO_DAY.md`](../docs/VIVADO_DAY.md). Set `NEXUS32_INPUTS=build` or
 `prebuilt` to override the platform default on any host.
 
 After synthesis the flow checks that IMEM block RAMs carry a non-zero
 `INIT_00`; a missing `$readmemh` image (a Vivado warning, not an error) would
-otherwise produce a bitstream with empty instruction memory.
+otherwise produce a bitstream with empty instruction memory, or no IMEM at all
+once the empty ROM is optimized away.
+
+### SoC clock
+
+The optional third argument (`MHZ` for the `.bat`) selects the SoC clock:
+`100` (default) drives the SoC straight from the 100 MHz oscillator; `50` or
+`25` instantiate an `MMCME2_BASE` (VCO 1000 MHz) plus `BUFG` in
+`top_basys3.sv`. Vivado derives the generated clock from the existing
+`create_clock`, so timing is checked at the slower period. The MMCM branch is
+elaborated only for 50/25, so simulation of the default build needs no Xilinx
+primitive models; the 50/25 path itself is checked only by Vivado.
 
 The flow uses an explicit non-project sequence: in-memory project creation,
 source and XDC ingestion, synthesis, post-synthesis reports/checkpoint,

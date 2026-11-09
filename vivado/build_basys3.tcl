@@ -6,7 +6,10 @@
 #
 # Invocation:
 #   vivado -mode batch -source vivado/build_basys3.tcl
-#   vivado -mode batch -source vivado/build_basys3.tcl -tclargs <output_dir> <LANES>
+#   vivado -mode batch -source vivado/build_basys3.tcl -tclargs <output_dir> <LANES> [<SYS_CLK_MHZ>]
+#
+# SYS_CLK_MHZ is 100 (default, board oscillator direct), 50 or 25 (MMCM in
+# top_basys3); use 50 when the 100 MHz build misses timing.
 #
 # A relative output directory is resolved from the directory in which Vivado
 # was launched.  The default is <repo>/results/vivado/basys3.
@@ -25,8 +28,8 @@ set root_dir [file normalize [file join $script_dir ..]]
 set part "xc7a35tcpg236-1"
 set top "top_basys3"
 
-if {[llength $argv] > 2} {
-    puts stderr "ERROR: expected at most <output_dir> and <LANES> arguments"
+if {[llength $argv] > 3} {
+    puts stderr "ERROR: expected at most <output_dir>, <LANES> and <SYS_CLK_MHZ> arguments"
     exit 2
 }
 
@@ -54,6 +57,20 @@ if {[llength $argv] >= 2} {
 }
 if {[lsearch -exact [list 4 8 16 32] $lanes] < 0} {
     puts stderr "ERROR: LANES must be one of 4, 8, 16, or 32; got '$lanes'"
+    exit 2
+}
+
+set sys_clk_mhz 100
+if {[llength $argv] >= 3 && [lindex $argv 2] ne ""} {
+    set sys_clk_arg [lindex $argv 2]
+    if {![string is integer -strict $sys_clk_arg]} {
+        puts stderr "ERROR: SYS_CLK_MHZ must be one of 100, 50, or 25; got '$sys_clk_arg'"
+        exit 2
+    }
+    set sys_clk_mhz [expr {int($sys_clk_arg)}]
+}
+if {[lsearch -exact [list 100 50 25] $sys_clk_mhz] < 0} {
+    puts stderr "ERROR: SYS_CLK_MHZ must be one of 100, 50, or 25; got '$sys_clk_mhz'"
     exit 2
 }
 
@@ -412,6 +429,7 @@ puts "Output Root     : $output_root"
 puts "Target Part     : $part"
 puts "Top Module      : $top"
 puts "LANES           : $lanes"
+puts "SoC Clock       : $sys_clk_mhz MHz"
 puts "Input Mode      : $input_mode"
 puts "Firmware Path   : $firmware_path"
 puts "XDC Path        : $xdc_path"
@@ -578,9 +596,10 @@ set top_status [run_required_stage "set_top" "" "set_property top $top <current_
 # NEXUS32_IMEM_GENERIC=0 omits the generic and relies on the working copy at
 # <output_root>/firmware/nexus32_smoke.hex (escape hatch if a Vivado release
 # rejects the quoted string generic); the IMEM guard still checks the result.
-set synth_generics [list "LANES=$lanes" "IMEM_INIT_FILE=\"$firmware_path\""]
+set synth_generics [list "LANES=$lanes" "SYS_CLK_MHZ=$sys_clk_mhz" \
+    "IMEM_INIT_FILE=\"$firmware_path\""]
 if {[info exists ::env(NEXUS32_IMEM_GENERIC)] && $::env(NEXUS32_IMEM_GENERIC) eq "0"} {
-    set synth_generics [list "LANES=$lanes"]
+    set synth_generics [list "LANES=$lanes" "SYS_CLK_MHZ=$sys_clk_mhz"]
 }
 set synth_command [join [list synth_design -top $top -part $part \
     -generic $synth_generics] " "]
@@ -591,14 +610,20 @@ set synth_status [run_required_stage "synthesis" "" $synth_command {
 
 # A missing $readmemh file is only a synthesis warning in Vivado and yields an
 # all-zero IMEM: the bitstream would build and the board would never boot.
-# Fail the flow instead when IMEM block RAMs exist but none is initialized.
+# An all-zero ROM is also optimized away entirely, so "no IMEM block RAM" is
+# treated as the same failure. NEXUS32_SKIP_IMEM_CHECK=1 overrides the check
+# after a manual review of utilization_hierarchical.rpt.
+set skip_imem_check [expr {[info exists ::env(NEXUS32_SKIP_IMEM_CHECK)] && \
+    $::env(NEXUS32_SKIP_IMEM_CHECK) eq "1"}]
 run_required_stage "post_synth.imem_init_check" "" \
     "get_property INIT_00 on RAMB cells matching *imem*" {
     lassign [count_initialized_brams "*imem*"] imem_brams imem_initialized
     if {$imem_brams < 0} {
         puts "NOTE: IMEM init check skipped: Vivado cell queries unavailable"
+    } elseif {$skip_imem_check} {
+        puts "WARNING: IMEM init check overridden by NEXUS32_SKIP_IMEM_CHECK=1 ($imem_initialized of $imem_brams IMEM block RAMs initialized)"
     } elseif {$imem_brams == 0} {
-        puts "WARNING: no block RAM matched *imem*; IMEM may be in LUTRAM. Inspect utilization_hierarchical.rpt."
+        error "no block RAM matches *imem*: the firmware image was probably not loaded and the empty ROM was optimized away ($firmware_path). If utilization_hierarchical.rpt shows IMEM in LUTs instead, set NEXUS32_SKIP_IMEM_CHECK=1"
     } elseif {$imem_initialized == 0} {
         error "IMEM maps to $imem_brams block RAMs but none has a non-zero INIT_00; the firmware image was not loaded ($firmware_path)"
     } else {
@@ -857,7 +882,7 @@ if {[info commands current_project] ne "" && [info commands close_project] ne ""
 }
 
 proc write_tsv_summary {path final_status} {
-    global stage_records artifact_records commit_sha vivado_version part top lanes \
+    global stage_records artifact_records commit_sha vivado_version part top lanes sys_clk_mhz \
         output_root firmware_path xdc_path riscv_cc riscv_objcopy bitstream_checksum \
         source_relpaths root_dir metadata_status tools_status source_status checksum_status
     set fp [open $path w]
@@ -868,6 +893,7 @@ proc write_tsv_summary {path final_status} {
     puts $fp [tsv_row [list metadata target_part PASS "" $part ""]]
     puts $fp [tsv_row [list metadata top PASS "" $top ""]]
     puts $fp [tsv_row [list metadata lanes PASS "" $lanes ""]]
+    puts $fp [tsv_row [list metadata sys_clk_mhz PASS "" $sys_clk_mhz ""]]
     puts $fp [tsv_row [list metadata output_root PASS $output_root $output_root ""]]
     puts $fp [tsv_row [list metadata firmware_path PASS $firmware_path $firmware_path ""]]
     puts $fp [tsv_row [list metadata xdc_path PASS $xdc_path $xdc_path ""]]
@@ -891,7 +917,7 @@ proc write_tsv_summary {path final_status} {
 }
 
 proc write_md_summary {path final_status} {
-    global stage_records artifact_records commit_sha vivado_version part top lanes \
+    global stage_records artifact_records commit_sha vivado_version part top lanes sys_clk_mhz \
         output_root firmware_path xdc_path riscv_cc riscv_objcopy bitstream_checksum \
         source_relpaths root_dir
     set fp [open $path w]
@@ -903,6 +929,7 @@ proc write_md_summary {path final_status} {
     puts $fp "- **Target part**: [markdown_field $part]"
     puts $fp "- **Top module**: [markdown_field $top]"
     puts $fp "- **LANES**: [markdown_field $lanes]"
+    puts $fp "- **SoC clock**: [markdown_field $sys_clk_mhz] MHz"
     puts $fp "- **Output root**: `[markdown_field $output_root]`"
     puts $fp "- **Firmware**: `[markdown_field $firmware_path]`"
     puts $fp "- **Constraints**: `[markdown_field $xdc_path]`"

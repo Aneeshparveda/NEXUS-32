@@ -4,7 +4,9 @@ set "SCRIPT_DIR=%~dp0"
 set "ROOT_DIR=%SCRIPT_DIR%..\"
 set "VIVADO_CMD="
 
-for /f "delims=" %%V in ('where vivado 2^>nul') do if not defined VIVADO_CMD set "VIVADO_CMD=%%V"
+rem Look up vivado.bat explicitly: Vivado's bin folder also holds an
+rem extensionless Linux launcher named "vivado" that cmd cannot run.
+for /f "delims=" %%V in ('where vivado.bat 2^>nul') do if not defined VIVADO_CMD set "VIVADO_CMD=%%V"
 
 if not defined VIVADO_CMD (
   for /d %%V in ("C:\Xilinx\Vivado\*") do if exist "%%~fV\bin\vivado.bat" set "VIVADO_CMD=%%~fV\bin\vivado.bat"

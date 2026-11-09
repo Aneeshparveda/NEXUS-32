@@ -200,7 +200,7 @@ vivado -mode batch -nojournal -nolog \
 
 LANES=4 is the recommended first run; the LANES=8 default is a candidate pending Vivado utilisation. LANES=16/32 are expected to exceed the XC7A35T's 90 DSP48E1 slices because the selector builds all three engines (pre-Vivado estimate, not a measurement).
 
-Running on Windows (no bash or RISC-V toolchain there): build a handoff zip with `bash scripts/make_vivado_bundle.sh`, then follow [docs/VIVADO_DAY.md](docs/VIVADO_DAY.md) (`vivado\RUN_VIVADO_CORES.bat`, `vivado\RUN_VIVADO_BASYS3.bat <LANES>`).
+Running on Windows (no bash or RISC-V toolchain there): build a handoff zip with `bash scripts/make_vivado_bundle.sh`, then follow [docs/VIVADO_DAY.md](docs/VIVADO_DAY.md) (`vivado\RUN_VIVADO_BASYS3.bat <LANES> [MHZ]`, `vivado\RUN_VIVADO_CORES.bat`). `MHZ` is 100 by default; 50/25 derive a slower SoC clock through an MMCM if the 100 MHz build misses timing.
 
 First argument: output directory. Second: lane count (`4`, `8`, `16`, or `32`). Summaries and reports land under the ignored output directory (`build_summary.tsv`, `build_summary.md`). A successful exit requires all mandatory stages through bitstream generation to pass.
 

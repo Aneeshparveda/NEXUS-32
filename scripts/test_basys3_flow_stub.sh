@@ -289,8 +289,64 @@ for bad_case in "$prebuilt_wrong_root:$prebuilt_wrong_rc:different/unpinned Pico
   fi
 done
 
+# SoC clock argument and post-synthesis IMEM guard, on a valid prebuilt bundle.
+guard_root="$(mktemp -d "${TMPDIR:-/tmp}/nexus32-basys3-guard.XXXXXX")"
+prepare_prebuilt_fixture "$guard_root" valid valid
+guard_tcl="$guard_root/fixture/scripts/test_basys3_flow_stub.tcl"
+
+run_guard_case() {
+  local name="$1" imem_state="$2"
+  shift 2
+  set +e
+  if [[ -n "$imem_state" ]]; then
+    NEXUS32_INPUTS=prebuilt STUB_IMEM_BRAMS="$imem_state" env -u STUB_FAIL_STAGE \
+      tclsh "$guard_tcl" "$guard_root/$name" "$@" >"$guard_root/$name.log" 2>&1
+  else
+    NEXUS32_INPUTS=prebuilt env -u STUB_FAIL_STAGE -u STUB_IMEM_BRAMS \
+      tclsh "$guard_tcl" "$guard_root/$name" "$@" >"$guard_root/$name.log" 2>&1
+  fi
+  local rc=$?
+  set -e
+  printf '%s' "$rc"
+}
+
+clk50_rc="$(run_guard_case clk50 loaded 8 50)"
+if [[ "$clk50_rc" -ne 0 ]] || \
+   ! grep -Fq $'metadata\tsys_clk_mhz\tPASS\t\t50' "$guard_root/clk50/build_summary.tsv" || \
+   ! grep -Fq 'SYS_CLK_MHZ=50' "$guard_root/clk50/build_summary.tsv" || \
+   ! grep -Fq $'stage\tpost_synth.imem_init_check\tPASS' "$guard_root/clk50/build_summary.tsv" || \
+   ! grep -Fq 'IMEM init check: 2 of 2 IMEM block RAMs carry firmware data' "$guard_root/clk50.log"; then
+  printf 'ERROR: 50 MHz build with loaded IMEM did not pass; log: %s\n' "$guard_root/clk50.log" >&2
+  exit 1
+fi
+
+clk_bad_rc="$(run_guard_case clk75 loaded 8 75)"
+if [[ "$clk_bad_rc" -ne 2 ]] || ! grep -Fq 'SYS_CLK_MHZ must be one of 100, 50, or 25' "$guard_root/clk75.log"; then
+  printf 'ERROR: unsupported 75 MHz clock was not rejected; log: %s\n' "$guard_root/clk75.log" >&2
+  exit 1
+fi
+
+for imem_state in none zero; do
+  imem_rc="$(run_guard_case "imem_$imem_state" "$imem_state" 8)"
+  if [[ "$imem_rc" -eq 0 ]] || \
+     ! grep -Fq $'stage\tpost_synth.imem_init_check\tFAIL' "$guard_root/imem_$imem_state/build_summary.tsv" || \
+     ! grep -Fq $'stage\twrite_bitstream\tSKIPPED' "$guard_root/imem_$imem_state/build_summary.tsv"; then
+    printf 'ERROR: IMEM guard did not stop the flow for state %s; log: %s\n' \
+      "$imem_state" "$guard_root/imem_$imem_state.log" >&2
+    exit 1
+  fi
+done
+
+override_rc="$(NEXUS32_SKIP_IMEM_CHECK=1 run_guard_case imem_override none 8)"
+if [[ "$override_rc" -ne 0 ]] || ! grep -Fq 'overridden by NEXUS32_SKIP_IMEM_CHECK=1' "$guard_root/imem_override.log"; then
+  printf 'ERROR: NEXUS32_SKIP_IMEM_CHECK=1 did not override the IMEM guard; log: %s\n' \
+    "$guard_root/imem_override.log" >&2
+  exit 1
+fi
+
 printf 'PASS: Basys-3 Vivado flow stub success and failure propagation checks\n'
 printf 'PASS: prebuilt-input (Windows bundle) mode accepted a valid bundle and rejected wrong-pin and corrupt-firmware bundles\n'
+printf 'PASS: SYS_CLK_MHZ argument (50 accepted, 75 rejected) and IMEM guard (none/zero fail, loaded pass, override honored)\n'
 printf 'Success artifacts: %s\n' "$success_output"
 printf 'Failure artifacts: %s\n' "$failure_output"
 printf 'Vendor fixture artifacts: %s %s %s\n' \
