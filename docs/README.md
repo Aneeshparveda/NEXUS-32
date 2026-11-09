@@ -15,4 +15,5 @@ the remaining documents are explanatory or evidentiary and must not override it.
 | [`PIPELINED_ENGINE.md`](PIPELINED_ENGINE.md) | Pipelined-engine behavior, ready/valid notes, and validation boundaries; explanatory and subject to the contract. |
 | [`STATUS.md`](STATUS.md) | Current evidence, release status, and explicit simulation-versus-hardware boundaries. |
 | [`THREE_WAY_DIFFERENTIAL.md`](THREE_WAY_DIFFERENTIAL.md) | Three-engine differential regression procedure and expected simulation evidence. |
+| [`VIVADO_DAY.md`](VIVADO_DAY.md) | Procedure for the first Vivado and board run on a Windows host: handoff bundle, run order, pass checks, failure triage. Procedure only, not evidence. |
 | [`VERIFICATION_CLOSURE.md`](VERIFICATION_CLOSURE.md) | Durable simulation closure receipt, reproduction commands, matrices, and provenance boundaries. |

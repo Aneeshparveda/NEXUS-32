@@ -60,9 +60,27 @@ module nexus32_soc #(
     } bridge_state_t;
 
     bridge_state_t bridge_state_q;
-    logic [31:0] local_rdata_q;
     logic local_fault_sticky_q;
     integer byte_lane;
+
+    // Local response source, registered alongside the memory reads. Each
+    // memory has its own registered read port fed directly from the array so
+    // synthesis can map IMEM and DMEM onto block RAM; the response mux sits
+    // after those registers.
+    typedef enum logic [1:0] {
+        LOCAL_ZERO,
+        LOCAL_IMEM,
+        LOCAL_DMEM
+    } local_source_t;
+
+    local_source_t local_source_q;
+    logic imem_read_now;
+    logic dmem_access_now;
+    logic dmem_read_now;
+    logic dmem_write_now;
+    logic [31:0] imem_rdata_q;
+    logic [31:0] dmem_rdata_q;
+    logic [31:0] local_rdata;
 
     logic accel_req_valid;
     logic accel_req_ready;
@@ -91,12 +109,48 @@ module nexus32_soc #(
     assign accel_req_wdata = cpu_mem_wdata;
     assign accel_req_wstrb = cpu_mem_wstrb;
 
+    // Same access decode as the ST_IDLE branch below: instruction fetches may
+    // only read aligned IMEM words; data accesses may use aligned DMEM words.
+    assign imem_read_now = (bridge_state_q == ST_IDLE) && !rst_i && cpu_mem_valid &&
+                           cpu_mem_is_imem && (cpu_mem_addr[1:0] == 2'b00) &&
+                           !(|cpu_mem_wstrb);
+    assign dmem_access_now = (bridge_state_q == ST_IDLE) && !rst_i && cpu_mem_valid &&
+                             !cpu_mem_instr && cpu_mem_is_dmem &&
+                             (cpu_mem_addr[1:0] == 2'b00);
+    assign dmem_write_now = dmem_access_now && (|cpu_mem_wstrb);
+    assign dmem_read_now = dmem_access_now && !(|cpu_mem_wstrb);
+
+    always_ff @(posedge clk_i) begin
+        if (imem_read_now)
+            imem_rdata_q <= imem[cpu_mem_addr[13:2]];
+    end
+
+    always_ff @(posedge clk_i) begin
+        if (dmem_write_now) begin
+            for (byte_lane = 0; byte_lane < 4; byte_lane = byte_lane + 1) begin
+                if (cpu_mem_wstrb[byte_lane])
+                    dmem[cpu_mem_addr[13:2]][8*byte_lane +: 8] <=
+                        cpu_mem_wdata[8*byte_lane +: 8];
+            end
+        end
+        if (dmem_read_now)
+            dmem_rdata_q <= dmem[cpu_mem_addr[13:2]];
+    end
+
+    always_comb begin
+        case (local_source_q)
+            LOCAL_IMEM: local_rdata = imem_rdata_q;
+            LOCAL_DMEM: local_rdata = dmem_rdata_q;
+            default:    local_rdata = 32'd0;
+        endcase
+    end
+
     always_comb begin
         cpu_mem_ready = 1'b0;
         cpu_mem_rdata = 32'd0;
         if (bridge_state_q == ST_LOCAL_RESPONSE) begin
             cpu_mem_ready = 1'b1;
-            cpu_mem_rdata = local_rdata_q;
+            cpu_mem_rdata = local_rdata;
         end else if ((bridge_state_q == ST_MMIO_WAIT) && accel_rsp_valid) begin
             cpu_mem_ready = 1'b1;
             // Preserve accelerator diagnostic response data, including the
@@ -109,7 +163,7 @@ module nexus32_soc #(
     always_ff @(posedge clk_i) begin
         if (rst_i) begin
             bridge_state_q <= ST_IDLE;
-            local_rdata_q <= 32'd0;
+            local_source_q <= LOCAL_ZERO;
             local_fault_sticky_q <= 1'b0;
             firmware_booted_o <= 1'b0;
             firmware_pass_o <= 1'b0;
@@ -119,29 +173,25 @@ module nexus32_soc #(
                     if (cpu_mem_valid) begin
                         // Instruction fetches may only access instruction
                         // memory. Reject fetches aimed at DMEM or MMIO.
+                        // The memory arrays themselves are read/written by
+                        // the dedicated processes above using the same decode.
                         if (cpu_mem_instr && !cpu_mem_is_imem) begin
                             local_fault_sticky_q <= 1'b1;
-                            local_rdata_q <= 32'd0;
+                            local_source_q <= LOCAL_ZERO;
                             bridge_state_q <= ST_LOCAL_RESPONSE;
                         end else if (cpu_mem_is_imem) begin
                             if ((cpu_mem_addr[1:0] != 2'b00) || (|cpu_mem_wstrb)) begin
                                 local_fault_sticky_q <= 1'b1;
-                                local_rdata_q <= 32'd0;
+                                local_source_q <= LOCAL_ZERO;
                             end else begin
-                                local_rdata_q <= imem[cpu_mem_addr[13:2]];
+                                local_source_q <= LOCAL_IMEM;
                             end
                             bridge_state_q <= ST_LOCAL_RESPONSE;
                         end else if (cpu_mem_is_dmem) begin
                             if (cpu_mem_addr[1:0] != 2'b00) begin
                                 local_fault_sticky_q <= 1'b1;
-                                local_rdata_q <= 32'd0;
+                                local_source_q <= LOCAL_ZERO;
                             end else if (|cpu_mem_wstrb) begin
-                                for (byte_lane = 0; byte_lane < 4; byte_lane = byte_lane + 1) begin
-                                    if (cpu_mem_wstrb[byte_lane]) begin
-                                        dmem[cpu_mem_addr[13:2]][8*byte_lane +: 8] <=
-                                            cpu_mem_wdata[8*byte_lane +: 8];
-                                    end
-                                end
                                 // Capture the firmware's existing DMEM signatures
                                 // as sticky board-visible status.  The firmware
                                 // uses full-word stores, so no extra RAM read port
@@ -154,9 +204,9 @@ module nexus32_soc #(
                                         (cpu_mem_wdata == FIRMWARE_PASS_SIGNATURE))
                                         firmware_pass_o <= 1'b1;
                                 end
-                                local_rdata_q <= 32'd0;
+                                local_source_q <= LOCAL_ZERO;
                             end else begin
-                                local_rdata_q <= dmem[cpu_mem_addr[13:2]];
+                                local_source_q <= LOCAL_DMEM;
                             end
                             bridge_state_q <= ST_LOCAL_RESPONSE;
                         end else if (accel_req_ready && accel_req_valid) begin

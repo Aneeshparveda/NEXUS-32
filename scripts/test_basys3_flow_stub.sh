@@ -210,7 +210,87 @@ if ! grep -Fq 'different/unpinned PicoRV32 source' "$vendor_incomplete_root/run.
   exit 1
 fi
 
+# Prebuilt-input (Windows handoff bundle) mode: no bash scripts, toolchain, or
+# git may be used.  The fixture drops .git and records BUNDLE_COMMIT.txt.
+prepare_prebuilt_fixture() {
+  local case_root="$1"
+  local vendor_state="$2"
+  local firmware_state="$3"
+  prepare_vendor_fixture "$case_root" "$vendor_state"
+  local fixture_root="$case_root/fixture"
+  rm -rf "$fixture_root/.git"
+  printf 'commit=%s\ndirty=0\n' 0123456789abcdef0123456789abcdef01234567 \
+    >"$fixture_root/BUNDLE_COMMIT.txt"
+  case "$firmware_state" in
+    valid) cp firmware/nexus32_smoke.hex "$fixture_root/firmware/nexus32_smoke.hex" ;;
+    corrupt) printf '%s\n' stub-firmware >"$fixture_root/firmware/nexus32_smoke.hex" ;;
+  esac
+}
+
+run_prebuilt_case() {
+  local case_root="$1"
+  set +e
+  NEXUS32_INPUTS=prebuilt env -u STUB_FAIL_STAGE tclsh \
+    "$case_root/fixture/scripts/test_basys3_flow_stub.tcl" \
+    "$case_root/output" 8 >"$case_root/run.log" 2>&1
+  local rc=$?
+  set -e
+  return "$rc"
+}
+
+prebuilt_valid_root="$(mktemp -d "${TMPDIR:-/tmp}/nexus32-basys3-prebuilt-valid.XXXXXX")"
+prebuilt_wrong_root="$(mktemp -d "${TMPDIR:-/tmp}/nexus32-basys3-prebuilt-wrong.XXXXXX")"
+prebuilt_corrupt_root="$(mktemp -d "${TMPDIR:-/tmp}/nexus32-basys3-prebuilt-corrupt.XXXXXX")"
+prepare_prebuilt_fixture "$prebuilt_valid_root" valid valid
+prepare_prebuilt_fixture "$prebuilt_wrong_root" wrong valid
+prepare_prebuilt_fixture "$prebuilt_corrupt_root" valid corrupt
+
+prebuilt_valid_rc=0
+run_prebuilt_case "$prebuilt_valid_root" || prebuilt_valid_rc=$?
+prebuilt_wrong_rc=0
+run_prebuilt_case "$prebuilt_wrong_root" || prebuilt_wrong_rc=$?
+prebuilt_corrupt_rc=0
+run_prebuilt_case "$prebuilt_corrupt_root" || prebuilt_corrupt_rc=$?
+
+prebuilt_summary="$prebuilt_valid_root/output/build_summary.tsv"
+if [[ "$prebuilt_valid_rc" -ne 0 ]] || \
+   ! grep -Fq $'stage\ttoolchain_selection\tSKIPPED' "$prebuilt_summary" || \
+   ! grep -Fq $'stage\tvendor_rtl\tPASS' "$prebuilt_summary" || \
+   ! grep -Fq $'stage\tsmoke_firmware\tPASS' "$prebuilt_summary" || \
+   ! grep -Fq $'stage\twrite_bitstream\tPASS' "$prebuilt_summary" || \
+   ! grep -Fq '0123456789abcdef0123456789abcdef01234567 (from BUNDLE_COMMIT.txt)' "$prebuilt_summary" || \
+   ! grep -Fq $'metadata\tlanes\tPASS\t\t8' "$prebuilt_summary"; then
+  printf 'ERROR: valid prebuilt bundle did not build cleanly (rc=%s); log: %s\n' \
+    "$prebuilt_valid_rc" "$prebuilt_valid_root/run.log" >&2
+  exit 1
+fi
+if [[ -e "$prebuilt_valid_root/fixture/vendor_script_invoked.txt" ]]; then
+  printf '%s\n' 'ERROR: prebuilt mode invoked the bash vendor script.' >&2
+  exit 1
+fi
+if [[ ! -s "$prebuilt_valid_root/output/firmware/nexus32_smoke.hex" ]]; then
+  printf '%s\n' 'ERROR: prebuilt mode did not stage the firmware working copy.' >&2
+  exit 1
+fi
+
+for bad_case in "$prebuilt_wrong_root:$prebuilt_wrong_rc:different/unpinned PicoRV32 source" \
+                "$prebuilt_corrupt_root:$prebuilt_corrupt_rc:expected 4096"; do
+  bad_root="${bad_case%%:*}"
+  bad_rest="${bad_case#*:}"
+  bad_rc="${bad_rest%%:*}"
+  bad_text="${bad_rest#*:}"
+  if [[ "$bad_rc" -eq 0 ]] || \
+     ! grep -Fq $'stage\tvendor_rtl\tFAIL' "$bad_root/output/build_summary.tsv" || \
+     grep -Fq $'stage\tsynthesis\tPASS' "$bad_root/output/build_summary.tsv" || \
+     ! grep -Fq "$bad_text" "$bad_root/run.log"; then
+    printf 'ERROR: invalid prebuilt bundle was not rejected before synthesis; log: %s\n' \
+      "$bad_root/run.log" >&2
+    exit 1
+  fi
+done
+
 printf 'PASS: Basys-3 Vivado flow stub success and failure propagation checks\n'
+printf 'PASS: prebuilt-input (Windows bundle) mode accepted a valid bundle and rejected wrong-pin and corrupt-firmware bundles\n'
 printf 'Success artifacts: %s\n' "$success_output"
 printf 'Failure artifacts: %s\n' "$failure_output"
 printf 'Vendor fixture artifacts: %s %s %s\n' \

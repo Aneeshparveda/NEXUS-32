@@ -6,8 +6,11 @@
 //   led[1] = accelerator busy
 //   led[2] = accelerator DONE or firmware PASS signature observed in DMEM[2]
 //   led[3] = trap, CPU/system bus fault, or accelerator error
+// LANES defaults to 8: the runtime selector instantiates all three engines,
+// and 16/32-lane builds are expected to exceed the XC7A35T's 90 DSP48E1
+// slices (pre-Vivado estimate; the utilization report is authoritative).
 module top_basys3 #(
-    parameter int LANES = 16,
+    parameter int LANES = 8,
     parameter IMEM_INIT_FILE = "firmware/nexus32_smoke.hex"
 ) (
     input  logic       clk_100mhz,
