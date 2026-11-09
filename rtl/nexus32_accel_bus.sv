@@ -150,7 +150,10 @@ module nexus32_accel_bus #(
     logic [31:0] result_mem [0:1023];
     logic result_read_en;
     logic result_read_valid_q;
-    logic [31:0] result_read_data_q;
+    logic [31:0] result_mem_rdata_q;
+    logic result_bypass_q;
+    logic [31:0] result_bypass_data_q;
+    logic [31:0] result_read_data;
     logic result_addr_matches_commit;
     logic csr_reset_accept;
     logic effective_reset;
@@ -246,23 +249,32 @@ module nexus32_accel_bus #(
 
     // A registered result-memory port with write-through for a same-cycle
     // result commit. The host has read-only access to this region.
+    // The array read is registered directly (no logic between the array and
+    // its read register) so synthesis can map it to a simple dual-port block
+    // RAM; the same-cycle write-through is a registered bypass selected after
+    // the read register. result_mem_we already excludes reset.
+    always_ff @(posedge clk_i) begin
+        if (result_mem_we)
+            result_mem[result_commit_addr[11:2]] <= result_commit_data;
+        if (result_read_en)
+            result_mem_rdata_q <= result_mem[req_addr_i[11:2]];
+    end
+
     always_ff @(posedge clk_i) begin
         if (rst_i) begin
             result_read_valid_q <= 1'b0;
-            result_read_data_q <= 32'd0;
+            result_bypass_q <= 1'b0;
+            result_bypass_data_q <= 32'd0;
         end else begin
             result_read_valid_q <= result_read_en;
             if (result_read_en) begin
-                if (result_addr_matches_commit)
-                    result_read_data_q <= result_commit_data;
-                else
-                    result_read_data_q <= result_mem[req_addr_i[11:2]];
-            end
-            if (result_mem_we) begin
-                result_mem[result_commit_addr[11:2]] <= result_commit_data;
+                result_bypass_q <= result_addr_matches_commit;
+                result_bypass_data_q <= result_commit_data;
             end
         end
     end
+
+    assign result_read_data = result_bypass_q ? result_bypass_data_q : result_mem_rdata_q;
 
     assign csr_req_valid = (state_q == ST_CSR_REQUEST);
     assign csr_req_write = csr_write_q;
@@ -419,7 +431,7 @@ module nexus32_accel_bus #(
                         end
                         MEM_RESULT: begin
                             if (result_read_valid_q) begin
-                                pending_rdata_q <= result_read_data_q;
+                                pending_rdata_q <= result_read_data;
                                 state_q <= ST_RESPOND;
                             end
                         end

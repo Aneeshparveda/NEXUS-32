@@ -10,6 +10,14 @@
 #
 # A relative output directory is resolved from the directory in which Vivado
 # was launched.  The default is <repo>/results/vivado/basys3.
+#
+# Input modes (environment variable NEXUS32_INPUTS):
+#   build    - provision PicoRV32 and compile the smoke firmware with bash and
+#              a RISC-V toolchain before synthesis (default on Linux/macOS).
+#   prebuilt - use the already-provisioned vendor/picorv32 and
+#              firmware/nexus32_smoke.hex shipped in a handoff bundle
+#              (scripts/make_vivado_bundle.sh).  Needs no bash, toolchain,
+#              network, or git (default on Windows).
 
 set launch_dir [file normalize [pwd]]
 set script_dir [file dirname [file normalize [info script]]]
@@ -32,7 +40,10 @@ if {[llength $argv] >= 1} {
     set output_root [file normalize [file join $launch_dir $output_arg]]
 }
 
-set lanes 16
+# LANES=8 is the board default: the selector instantiates all three engines,
+# and the 16/32-lane builds are expected to exceed the XC7A35T's 90 DSP48E1
+# slices.  This is a pre-Vivado estimate; the utilization report decides.
+set lanes 8
 if {[llength $argv] >= 2} {
     set lanes_arg [lindex $argv 1]
     if {![string is integer -strict $lanes_arg]} {
@@ -45,6 +56,22 @@ if {[lsearch -exact [list 4 8 16 32] $lanes] < 0} {
     puts stderr "ERROR: LANES must be one of 4, 8, 16, or 32; got '$lanes'"
     exit 2
 }
+
+if {[info exists ::env(NEXUS32_INPUTS)] && [string trim $::env(NEXUS32_INPUTS)] ne ""} {
+    set input_mode [string tolower [string trim $::env(NEXUS32_INPUTS)]]
+} elseif {$::tcl_platform(platform) eq "windows"} {
+    # On Windows "bash" may resolve to WSL, which cannot run these scripts
+    # against Windows paths.  Use the bundle's prebuilt inputs instead.
+    set input_mode "prebuilt"
+} else {
+    set input_mode "build"
+}
+if {[lsearch -exact [list build prebuilt] $input_mode] < 0} {
+    puts stderr "ERROR: NEXUS32_INPUTS must be 'build' or 'prebuilt'; got '$input_mode'"
+    exit 2
+}
+set picorv32_pin "ef203c2b0a3fb793280f5114941416c425c5b461"
+set picorv32_sha256 "0836050971b3c6cdd28ac3b1e5719a67fb645161912bef1e472e63995ceb0622"
 
 set xdc_relpath "constraints/basys3.xdc"
 set firmware_relpath "firmware/nexus32_smoke.hex"
@@ -288,7 +315,7 @@ proc select_tool {environment_name candidates} {
 }
 
 proc checksum_command {} {
-    foreach candidate [list sha256sum shasum] {
+    foreach candidate [list sha256sum shasum certutil] {
         set resolved [auto_execok $candidate]
         if {$resolved ne ""} {
             return [list $candidate $resolved]
@@ -299,15 +326,83 @@ proc checksum_command {} {
 
 proc compute_sha256 {kind executable path} {
     if {$kind eq "sha256sum"} {
-        set output [exec $executable $path]
+        set output [exec {*}$executable $path]
+    } elseif {$kind eq "certutil"} {
+        # Windows: the hash is printed on its own line, possibly with spaces
+        # between byte pairs on older releases.
+        set output [exec {*}$executable -hashfile [file nativename $path] SHA256]
+        foreach line [split $output "\n"] {
+            set candidate [string map [list " " ""] [string trim $line]]
+            if {[regexp {^[0-9A-Fa-f]{64}$} $candidate]} {
+                return [string tolower $candidate]
+            }
+        }
+        error "could not parse SHA-256 output from certutil: $output"
     } else {
-        set output [exec $executable -a 256 $path]
+        set output [exec {*}$executable -a 256 $path]
     }
     set match [regexp -inline {^([0-9A-Fa-f]{64})} [string trim $output]]
     if {[llength $match] != 2} {
         error "could not parse SHA-256 output from $kind: $output"
     }
     return [lindex $match 1]
+}
+
+# Validate a prebuilt input tree without bash, git, or a RISC-V toolchain.
+proc verify_prebuilt_inputs {vendor_source firmware_path pin expected_sha256} {
+    set revision_path [file join [file dirname $vendor_source] REVISION.txt]
+    foreach required [list $vendor_source $revision_path $firmware_path] {
+        if {![file exists $required]} {
+            error "prebuilt input missing: $required (build the handoff bundle with scripts/make_vivado_bundle.sh)"
+        }
+    }
+    set fp [open $revision_path r]
+    set revision_text [read $fp]
+    close $fp
+    if {[string first "Pinned commit: $pin" $revision_text] < 0} {
+        error "different/unpinned PicoRV32 source: $revision_path does not record $pin"
+    }
+    set hash_note "picorv32.v SHA-256 not checked (Tcl sha256 package unavailable)"
+    if {![catch {package require sha256}]} {
+        set actual [string tolower [::sha2::sha256 -hex -filename $vendor_source]]
+        if {$actual ne $expected_sha256} {
+            error "different/unpinned PicoRV32 source: picorv32.v SHA-256 $actual != $expected_sha256"
+        }
+        set hash_note "picorv32.v SHA-256 verified"
+    }
+    set fp [open $firmware_path r]
+    set firmware_lines [split [string trim [read $fp]] "\n"]
+    close $fp
+    if {[llength $firmware_lines] != 4096} {
+        error "prebuilt firmware $firmware_path has [llength $firmware_lines] words; expected 4096"
+    }
+    foreach word $firmware_lines {
+        if {![regexp {^[0-9A-Fa-f]{8}$} [string trim $word]]} {
+            error "prebuilt firmware $firmware_path contains a non-hex word: '$word'"
+        }
+    }
+    if {[string trim [lindex $firmware_lines 0]] eq "00000000"} {
+        error "prebuilt firmware $firmware_path starts with an all-zero word; image looks empty"
+    }
+    return "Pinned commit $pin recorded; $hash_note; firmware has 4096 hex words"
+}
+
+# Return {matching_block_rams block_rams_with_nonzero_INIT_00} for block RAM
+# cells whose hierarchical name matches pattern, or {-1 0} when the Vivado
+# query commands are unavailable (for example in the offline stub).
+proc count_initialized_brams {pattern} {
+    if {[info commands get_cells] eq "" || [info commands get_property] eq ""} {
+        return [list -1 0]
+    }
+    set cells [get_cells -quiet -hierarchical -filter "REF_NAME =~ RAMB* && NAME =~ $pattern"]
+    set nonzero 0
+    foreach cell $cells {
+        set init [get_property -quiet INIT_00 $cell]
+        if {[regexp {'h0*[1-9A-Fa-f]} $init]} {
+            incr nonzero
+        }
+    }
+    return [list [llength $cells] $nonzero]
 }
 
 puts "================================================================="
@@ -317,71 +412,105 @@ puts "Output Root     : $output_root"
 puts "Target Part     : $part"
 puts "Top Module      : $top"
 puts "LANES           : $lanes"
+puts "Input Mode      : $input_mode"
 puts "Firmware Path   : $firmware_path"
 puts "XDC Path        : $xdc_path"
 puts "================================================================="
 
-set metadata_command "git -C $root_dir rev-parse HEAD; version -short"
+# The commit is provenance, not a build input: a bundle copied without .git
+# (or a host without git) records the bundle's BUNDLE_COMMIT.txt instead.
+set metadata_command "git -C $root_dir rev-parse HEAD (or BUNDLE_COMMIT.txt); version -short"
 set metadata_status [run_required_stage "metadata" "" $metadata_command {
-    set metadata_errors [list]
-    if {[catch {exec git -C $root_dir rev-parse HEAD} git_value]} {
-        lappend metadata_errors "commit SHA query failed: $git_value"
-    } else {
+    if {[catch {exec git -C $root_dir rev-parse HEAD} git_value] == 0} {
         set commit_sha [string trim $git_value]
+    } else {
+        set bundle_commit_path [file join $root_dir BUNDLE_COMMIT.txt]
+        if {[file exists $bundle_commit_path]} {
+            set fp [open $bundle_commit_path r]
+            set bundle_text [read $fp]
+            close $fp
+            if {[regexp -line {^commit=(\S+)} $bundle_text -> bundle_commit]} {
+                set commit_sha "$bundle_commit (from BUNDLE_COMMIT.txt)"
+            } else {
+                set commit_sha "unknown (BUNDLE_COMMIT.txt has no commit= line)"
+            }
+        } else {
+            set commit_sha "unknown (git unavailable and no BUNDLE_COMMIT.txt)"
+        }
     }
     if {[catch {version -short} version_value]} {
-        lappend metadata_errors "Vivado version query failed: $version_value"
-    } else {
-        set vivado_version [string trim $version_value]
+        error "Vivado version query failed: $version_value"
     }
-    if {[llength $metadata_errors] > 0} {
-        error [join $metadata_errors "; "]
-    }
+    set vivado_version [string trim $version_value]
 }]
 
 puts "Commit SHA      : $commit_sha"
 puts "Vivado Version  : $vivado_version"
 
-set tools_command "select RISCV_CC/RISCV_OBJCOPY from environment or riscv64 toolchain"
-set tools_status [run_required_stage "toolchain_selection" "" $tools_command {
-    set riscv_cc [select_tool "RISCV_CC" [list riscv64-elf-gcc riscv64-unknown-elf-gcc]]
-    set riscv_objcopy [select_tool "RISCV_OBJCOPY" [list riscv64-elf-objcopy riscv64-unknown-elf-objcopy]]
-    puts "RISCV_CC       : $riscv_cc"
-    puts "RISCV_OBJCOPY  : $riscv_objcopy"
-}]
+if {$input_mode eq "prebuilt"} {
+    set tools_status "SKIPPED"
+    set riscv_cc "N/A (prebuilt inputs)"
+    set riscv_objcopy "N/A (prebuilt inputs)"
+    record_stage "toolchain_selection" "SKIPPED" "" "NEXUS32_INPUTS=prebuilt" \
+        "Prebuilt inputs mode: no RISC-V toolchain is required on this host"
 
-set vendor_command "bash $vendor_script (verify pinned PicoRV32 revision)"
-set vendor_status [run_required_stage "vendor_rtl" $vendor_source $vendor_command {
-    if {![file exists $vendor_script]} {
-        error "vendor provisioning script not found: $vendor_script"
-    }
-    set vendor_output [exec bash $vendor_script 2>@1]
-    if {$vendor_output ne ""} {
-        puts $vendor_output
-    }
-    ensure_artifact $vendor_source
-}]
-record_artifact "vendor RTL" $vendor_source $vendor_status "vendor_rtl"
+    set prebuilt_message ""
+    set vendor_status [run_required_stage "vendor_rtl" $vendor_source \
+        "verify prebuilt vendor/picorv32 and firmware/nexus32_smoke.hex" {
+        set prebuilt_message [verify_prebuilt_inputs $vendor_source $firmware_path \
+            $picorv32_pin $picorv32_sha256]
+        puts "Prebuilt inputs : $prebuilt_message"
+    }]
+    record_artifact "vendor RTL" $vendor_source $vendor_status "vendor_rtl"
 
-set firmware_command [join [list env \
-    "RISCV_CC=$riscv_cc" \
-    "RISCV_OBJCOPY=$riscv_objcopy" \
-    bash $firmware_script] " "]
-set firmware_status [run_required_stage "smoke_firmware" $firmware_path $firmware_command {
-    if {![file exists $firmware_script]} {
-        error "firmware build script not found: $firmware_script"
+    set firmware_status $vendor_status
+    if {$vendor_status eq "PASS"} {
+        record_stage "smoke_firmware" "PASS" $firmware_path "prebuilt" \
+            "Using prebuilt firmware image from the handoff bundle"
+    } else {
+        record_stage "smoke_firmware" "SKIPPED" $firmware_path "prebuilt" \
+            "A previous mandatory stage failed"
     }
-    set firmware_exec [list env \
-        "RISCV_CC=$riscv_cc" \
-        "RISCV_OBJCOPY=$riscv_objcopy" \
-        bash $firmware_script]
-    set firmware_output [exec {*}$firmware_exec 2>@1]
-    if {$firmware_output ne ""} {
-        puts $firmware_output
-    }
-    ensure_artifact $firmware_path
-}]
-record_artifact "smoke firmware" $firmware_path $firmware_status "smoke_firmware"
+    record_artifact "smoke firmware" $firmware_path $firmware_status "smoke_firmware"
+} else {
+    set tools_command "select RISCV_CC/RISCV_OBJCOPY from environment or riscv64 toolchain"
+    set tools_status [run_required_stage "toolchain_selection" "" $tools_command {
+        set riscv_cc [select_tool "RISCV_CC" [list riscv64-elf-gcc riscv64-unknown-elf-gcc]]
+        set riscv_objcopy [select_tool "RISCV_OBJCOPY" [list riscv64-elf-objcopy riscv64-unknown-elf-objcopy]]
+        puts "RISCV_CC       : $riscv_cc"
+        puts "RISCV_OBJCOPY  : $riscv_objcopy"
+    }]
+
+    set vendor_command "bash $vendor_script (verify pinned PicoRV32 revision)"
+    set vendor_status [run_required_stage "vendor_rtl" $vendor_source $vendor_command {
+        if {![file exists $vendor_script]} {
+            error "vendor provisioning script not found: $vendor_script"
+        }
+        set vendor_output [exec bash $vendor_script 2>@1]
+        if {$vendor_output ne ""} {
+            puts $vendor_output
+        }
+        ensure_artifact $vendor_source
+    }]
+    record_artifact "vendor RTL" $vendor_source $vendor_status "vendor_rtl"
+
+    # Pass the toolchain through the environment rather than the POSIX env
+    # utility, so the command does not depend on /usr/bin/env.
+    set firmware_command "RISCV_CC=$riscv_cc RISCV_OBJCOPY=$riscv_objcopy bash $firmware_script"
+    set firmware_status [run_required_stage "smoke_firmware" $firmware_path $firmware_command {
+        if {![file exists $firmware_script]} {
+            error "firmware build script not found: $firmware_script"
+        }
+        set ::env(RISCV_CC) $riscv_cc
+        set ::env(RISCV_OBJCOPY) $riscv_objcopy
+        set firmware_output [exec bash $firmware_script 2>@1]
+        if {$firmware_output ne ""} {
+            puts $firmware_output
+        }
+        ensure_artifact $firmware_path
+    }]
+    record_artifact "smoke firmware" $firmware_path $firmware_status "smoke_firmware"
+}
 
 # Keep Vivado's default journal/log files alongside the requested build
 # outputs.  All source paths and generated report paths are absolute.
@@ -399,6 +528,18 @@ set directory_status [run_required_stage "report_directories" $report_dir \
         error "one or more report directories could not be created"
     }
 }]
+
+# Fallback for the IMEM image: if synthesis ignores the IMEM_INIT_FILE generic,
+# top_basys3's relative default "firmware/nexus32_smoke.hex" resolves against
+# the synthesis working directory (output_root).  The post-synthesis IMEM
+# guard below still rejects an uninitialized instruction memory.
+set firmware_fallback_path [file join $output_root firmware nexus32_smoke.hex]
+run_required_stage "firmware_working_copy" $firmware_fallback_path \
+    "file copy -force $firmware_path $firmware_fallback_path" {
+    file mkdir [file dirname $firmware_fallback_path]
+    file copy -force $firmware_path $firmware_fallback_path
+    ensure_artifact $firmware_fallback_path
+}
 
 set project_status [run_required_stage "create_in_memory_project" "" \
     "create_project -in_memory -part $part" {
@@ -432,13 +573,38 @@ set top_status [run_required_stage "set_top" "" "set_property top $top <current_
     set_property top $top [current_fileset]
 }]
 
-set synth_generics [list "LANES=$lanes" "IMEM_INIT_FILE=$firmware_path"]
+# Verilog string parameters must be passed with literal double quotes; the
+# path itself uses forward slashes on every host (file normalize).
+# NEXUS32_IMEM_GENERIC=0 omits the generic and relies on the working copy at
+# <output_root>/firmware/nexus32_smoke.hex (escape hatch if a Vivado release
+# rejects the quoted string generic); the IMEM guard still checks the result.
+set synth_generics [list "LANES=$lanes" "IMEM_INIT_FILE=\"$firmware_path\""]
+if {[info exists ::env(NEXUS32_IMEM_GENERIC)] && $::env(NEXUS32_IMEM_GENERIC) eq "0"} {
+    set synth_generics [list "LANES=$lanes"]
+}
 set synth_command [join [list synth_design -top $top -part $part \
     -generic $synth_generics] " "]
 set synth_status [run_required_stage "synthesis" "" $synth_command {
     synth_design -top $top -part $part \
         -generic $synth_generics
 }]
+
+# A missing $readmemh file is only a synthesis warning in Vivado and yields an
+# all-zero IMEM: the bitstream would build and the board would never boot.
+# Fail the flow instead when IMEM block RAMs exist but none is initialized.
+run_required_stage "post_synth.imem_init_check" "" \
+    "get_property INIT_00 on RAMB cells matching *imem*" {
+    lassign [count_initialized_brams "*imem*"] imem_brams imem_initialized
+    if {$imem_brams < 0} {
+        puts "NOTE: IMEM init check skipped: Vivado cell queries unavailable"
+    } elseif {$imem_brams == 0} {
+        puts "WARNING: no block RAM matched *imem*; IMEM may be in LUTRAM. Inspect utilization_hierarchical.rpt."
+    } elseif {$imem_initialized == 0} {
+        error "IMEM maps to $imem_brams block RAMs but none has a non-zero INIT_00; the firmware image was not loaded ($firmware_path)"
+    } else {
+        puts "IMEM init check: $imem_initialized of $imem_brams IMEM block RAMs carry firmware data"
+    }
+}
 
 set post_synth_utilization [file join $post_synth_report_dir utilization.rpt]
 set post_synth_utilization_hierarchical [file join $post_synth_report_dir utilization_hierarchical.rpt]

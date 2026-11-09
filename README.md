@@ -30,7 +30,7 @@ Most FIR-accelerator demos show one architecture and one number. NEXUS-32 asks a
 | **Engines** | Sequential (one MAC at a time) · Parallel (one multiplier per lane, balanced tree) · Pipelined (elastic registered reduction tree) |
 | **Contract** | Q16.16 · 32×32→64-bit product · 72-bit Q40.32 accumulator · no intermediate rounding/saturation · `>>> 16` + int32 clamp |
 | **Block range** | `SAMPLE_COUNT` 1..1024, zero-initialised history, `RESULT_COUNT` counts only successful commits |
-| **LANES** | 4, 8, 16, 32 (integrated shell defaults to 32; board wrapper defaults to 16 — wrapper vs shell, both stated) |
+| **LANES** | 4, 8, 16, 32 (integrated shell defaults to 32; board wrapper defaults to 8 — wrapper vs shell, both stated) |
 | **Firmware** | Bare-metal RV32I assembly only — no C firmware |
 | **Evidence** | Simulation + CI only. Board evidence: none yet |
 
@@ -111,7 +111,7 @@ flowchart TD
     CI["GitHub Actions CI<br/>19 named steps<br/>simulation + toolchain only"]
     OOC["Vivado OOC characterisation<br/>(NOT YET DONE)"]
     BOARD4["Board build LANES = 4<br/>(NOT YET DONE)"]
-    BOARD16["Board build LANES = 16<br/>(NOT YET DONE)"]
+    BOARD16["Board build LANES = 8<br/>(NOT YET DONE)"]
     PROG["Program board + telemetry<br/>(NOT YET DONE)"]
     GOLD --> RTL
     RTL --> FW
@@ -184,7 +184,7 @@ The Python model and utility scripts use only the standard library; `requirement
 
 ### Basys 3 integration and FPGA build (not yet run here)
 
-Board candidate: `rtl/top_basys3.sv` (Basys 3 rev-B, `xc7a35tcpg236-1`, wrapper default LANES=16). It connects the 100 MHz oscillator, centre pushbutton, and four status LEDs (boot, busy, completion/PASS, trap-or-fault — not a free-running heartbeat). Pin constraints: `constraints/basys3.xdc` (clock `W5`, button `U18`, LEDs `U16`, `E19`, `U19`, `V19`, `LVCMOS33`). Check wrapper/XDC consistency without Vivado:
+Board candidate: `rtl/top_basys3.sv` (Basys 3 rev-B, `xc7a35tcpg236-1`, wrapper default LANES=8). It connects the 100 MHz oscillator, centre pushbutton, and four status LEDs (boot, busy, completion/PASS, trap-or-fault — not a free-running heartbeat). Pin constraints: `constraints/basys3.xdc` (clock `W5`, button `U18`, LEDs `U16`, `E19`, `U19`, `V19`, `LVCMOS33`). Check wrapper/XDC consistency without Vivado:
 
 ```bash
 python3 scripts/check_basys3_constraints.py
@@ -198,7 +198,9 @@ vivado -mode batch -nojournal -nolog \
   -tclargs results/vivado/basys3 4
 ```
 
-LANES=4 is the recommended first run; the LANES=16 default is a candidate pending Vivado utilisation.
+LANES=4 is the recommended first run; the LANES=8 default is a candidate pending Vivado utilisation. LANES=16/32 are expected to exceed the XC7A35T's 90 DSP48E1 slices because the selector builds all three engines (pre-Vivado estimate, not a measurement).
+
+Running on Windows (no bash or RISC-V toolchain there): build a handoff zip with `bash scripts/make_vivado_bundle.sh`, then follow [docs/VIVADO_DAY.md](docs/VIVADO_DAY.md) (`vivado\RUN_VIVADO_CORES.bat`, `vivado\RUN_VIVADO_BASYS3.bat <LANES>`).
 
 First argument: output directory. Second: lane count (`4`, `8`, `16`, or `32`). Summaries and reports land under the ignored output directory (`build_summary.tsv`, `build_summary.md`). A successful exit requires all mandatory stages through bitstream generation to pass.
 
@@ -295,7 +297,7 @@ results/        Generated simulation outputs (not committed in bulk)
 - [x] Differential + SoC benches, verification closure (15 PASS / 0 FAIL), CI gate (19 named steps)
 - [x] Basys 3 wrapper + XDC source-integrated
 - [ ] Vivado OOC characterisation (LANES sweep) — laptop-day phase
-- [ ] Board builds starting with LANES=4 (board LANES is chosen after Vivado synthesis utilisation is known; LANES=16 is a candidate, not a promised fit): bitstream + LED telemetry + dated photos
+- [ ] Board builds starting with LANES=4 (board LANES is chosen after Vivado synthesis utilisation is known; LANES=8 is the candidate, not a promised fit): bitstream + LED telemetry + dated photos
 - [ ] Release v1.0.0: README results with real Vivado numbers, per-arch `.bit` in Releases
 - [ ] After v1.0.0: UART/data channel, C firmware, formal checks, power analysis
 

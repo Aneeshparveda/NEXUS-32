@@ -9,6 +9,9 @@ for /f "delims=" %%V in ('where vivado 2^>nul') do if not defined VIVADO_CMD set
 if not defined VIVADO_CMD (
   for /d %%V in ("C:\Xilinx\Vivado\*") do if exist "%%~fV\bin\vivado.bat" set "VIVADO_CMD=%%~fV\bin\vivado.bat"
 )
+if not defined VIVADO_CMD (
+  for /d %%V in ("C:\AMDDesignTools\*") do if exist "%%~fV\Vivado\bin\vivado.bat" set "VIVADO_CMD=%%~fV\Vivado\bin\vivado.bat"
+)
 
 if not defined VIVADO_CMD (
   echo =========================================================================

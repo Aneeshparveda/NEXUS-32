@@ -38,8 +38,9 @@ bash scripts/run_vivado_char.sh [output_dir]
 
 ### Board top and physical interfaces
 
-`rtl/top_basys3.sv` is the board-level top module. It defaults to `LANES=16`
-and instantiates `nexus32_soc` with the existing smoke firmware image. Its
+`rtl/top_basys3.sv` is the board-level top module. It defaults to `LANES=8`
+(16/32 are expected to exceed the 90 DSP48E1 slices when the selector builds
+all three engines; pre-Vivado estimate) and instantiates `nexus32_soc` with the existing smoke firmware image. Its
 ports are:
 
 | Port | Direction | Board connection | Meaning |
@@ -82,15 +83,31 @@ the RISC-V compiler/binutils, and the required board files:
 ```bash
 vivado -mode batch -nojournal -nolog \
   -source vivado/build_basys3.tcl \
-  -tclargs results/vivado/basys3 16
+  -tclargs results/vivado/basys3 8
 ```
 
 The arguments are `<output_dir> <LANES>`; the defaults are
-`results/vivado/basys3` and `16`. Supported lane values remain `4`, `8`, `16`,
+`results/vivado/basys3` and `8`. Supported lane values remain `4`, `8`, `16`,
 and `32`; the source and simulation configurations are not removed if the
-16-lane board build is changed later. `RISCV_CC` and `RISCV_OBJCOPY` may be set
+board default changes later. `RISCV_CC` and `RISCV_OBJCOPY` may be set
 explicitly. When unset, the flow tries the `riscv64-elf-*` tool names followed
 by `riscv64-unknown-elf-*`.
+
+### Windows hosts (prebuilt inputs)
+
+Windows has no bash or RISC-V toolchain, so the flow defaults to
+`NEXUS32_INPUTS=prebuilt` there: it uses `vendor/picorv32/` and
+`firmware/nexus32_smoke.hex` from a handoff zip made by
+`bash scripts/make_vivado_bundle.sh`, verifies the pinned revision, the
+PicoRV32 SHA-256 (when Tcl's `sha256` package is available) and the 4096-word
+firmware image, and never calls bash, git or the toolchain. Run
+`vivado\RUN_VIVADO_BASYS3.bat <LANES>`. The full procedure is in
+[`docs/VIVADO_DAY.md`](../docs/VIVADO_DAY.md). Set `NEXUS32_INPUTS=build` or
+`prebuilt` to override the platform default on any host.
+
+After synthesis the flow checks that IMEM block RAMs carry a non-zero
+`INIT_00`; a missing `$readmemh` image (a Vivado warning, not an error) would
+otherwise produce a bitstream with empty instruction memory.
 
 The flow uses an explicit non-project sequence: in-memory project creation,
 source and XDC ingestion, synthesis, post-synthesis reports/checkpoint,

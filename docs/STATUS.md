@@ -50,9 +50,10 @@ the runs listed below are point-in-time checks.
   notes, no dated board photo.
 - No demo GIF, screenshot, or video exists yet.
 - Board LANES is not promised: the board LANES value is chosen after
-  Vivado synthesis utilisation is known. LANES=16 is a candidate, not a
-  promised fit for the XC7A35T.
-- The board wrapper default (LANES=16 in `rtl/top_basys3.sv`) and the
+  Vivado synthesis utilisation is known. LANES=8 is the candidate, not a
+  promised fit for the XC7A35T; LANES=16/32 are expected to exceed its 90
+  DSP48E1 slices with all three engines built (pre-Vivado estimate).
+- The board wrapper default (LANES=8 in `rtl/top_basys3.sv`) and the
   integrated shell default (LANES=32) are source defaults, not fit or
   timing results.
 
