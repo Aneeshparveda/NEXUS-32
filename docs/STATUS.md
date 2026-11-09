@@ -1,6 +1,6 @@
 # NEXUS-32 Status
 
-**Last updated: 2026-10-26.**
+**Last updated: 2026-11-10.**
 
 This file is the single detailed status record the README status banner
 points to. The CI badge at the top of the README is the live CI signal;
@@ -11,6 +11,10 @@ the runs listed below are point-in-time checks.
 - Last reviewed against main at `c74f5e1` ("Merge pull request #7 from
   Aneeshparveda/readme-revamp", verified from the repository history in
   this checkout).
+- Branch `feature/vivado-windows-handoff` (2026-11-10) adds the Windows
+  Vivado flow, the UART board demo and the evidence tools. It was verified
+  locally with `make test-all` (Icarus 13.0, Verilator 5.052) and the four
+  manual runners; hosted CI on that branch is not yet verified.
 
 ## CI status
 
@@ -41,13 +45,21 @@ the runs listed below are point-in-time checks.
   so those counts are not standalone architecture throughput or PPA).
 - SoC START-to-verdict latency of 129 cycles at LANES=32 is a simulation
   figure only, not a board measurement and not `CYCLES_TOTAL`.
+- Board demo firmware, simulation only: through PicoRV32, a 1024-sample block
+  with `TAP_COUNT = LANES` matches the Python-golden checksum on all three
+  engines at LANES 4/8/16/32, and the UART report is decoded independently by
+  `tests/rtl/tb_nexus32_soc_demo.sv` (`scripts/run_soc_demo.sh all`).
 
 ## What is NOT claimed
 
 - No LUT, DSP, or WNS numbers are claimed — no Vivado run has produced
-  them yet, and no DSP estimate is stated in the README.
+  them yet. The README states only a labelled pre-Vivado fit estimate
+  (LANES 16/32 likely exceed the 90 DSP48E1 with all three engines built),
+  not a measurement.
 - No board evidence exists yet: no bitstream SHA-256, no LED observation
-  notes, no dated board photo.
+  notes, no UART log from hardware, no dated board photo.
+- The 50/25 MHz MMCM clock option in `rtl/top_basys3.sv` is checked only for
+  elaboration with port stubs; Vivado has not yet synthesized it.
 - No demo GIF, screenshot, or video exists yet.
 - Board LANES is not promised: the board LANES value is chosen after
   Vivado synthesis utilisation is known. LANES=8 is the candidate, not a
@@ -65,8 +77,9 @@ the runs listed below are point-in-time checks.
 - `ARCH_SEL=11` is rejected; no adaptive/Auto policy is implemented.
   (`docs/ACCELERATOR_CONTRACT_V1.md`; `rtl/fir_arch_selector.sv`)
 - The CPU integration is single-master and does not yet implement DMA,
-  UART, GPIO, Sample B, STREAM-DB, or the planned system debug monitor.
-  (`rtl/fir_seq_accel.sv`)
+  UART receive, GPIO, interrupts, Sample B, STREAM-DB, or the planned system
+  debug monitor. The system page provides UART transmit and SYS_INFO only.
+  (`rtl/fir_seq_accel.sv`, `rtl/nexus32_soc.sv`)
 - PicoRV32 native memory has no dedicated error response input; the
   wrapper exposes sticky bus-fault status and returns zero on an
   errored MMIO response.

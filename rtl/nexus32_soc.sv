@@ -3,11 +3,24 @@
 // CPU native-memory requests are held by PicoRV32 until mem_ready. Local RAM
 // responds after a registered wait cycle; MMIO waits for the accelerator
 // bus's one-cycle response pulse. Bus faults are made sticky for observation.
+//
+// System page 0x1000_6000..0x1000_6FFF (local, answered like RAM):
+//   0x00 UART_TXDATA  W: bits 7:0 start one 8N1 frame (full-word store only).
+//                     A store while the transmitter is busy is dropped and
+//                     sets UART_STATUS.TX_OVERRUN. Reads return zero.
+//   0x04 UART_STATUS  R: bit 0 TX_READY, bit 1 TX_OVERRUN (sticky until reset).
+//                     Writes are ignored.
+//   0x08 SYS_INFO     R: bits 7:0 LANES, bits 15:8 CLK_MHZ, bits 31:16 0x4E58.
+//                     Writes are ignored.
+// Other offsets, misaligned accesses and partial TXDATA stores set the
+// sticky CPU bus fault and return zero, like other malformed local accesses.
 module nexus32_soc #(
     parameter IMEM_INIT_FILE = "firmware/nexus32_smoke.hex",
     parameter integer IMEM_WORDS = 4096,
     parameter integer DMEM_WORDS = 4096,
-    parameter int LANES = 32
+    parameter int LANES = 32,
+    parameter int CLK_MHZ = 100,
+    parameter int UART_CLKS_PER_BIT = (CLK_MHZ * 1000000) / 115200
 ) (
     input  logic clk_i,
     input  logic rst_i,
@@ -17,7 +30,8 @@ module nexus32_soc #(
     output logic accelerator_done_o,
     output logic accelerator_error_o,
     output logic firmware_booted_o,
-    output logic firmware_pass_o
+    output logic firmware_pass_o,
+    output logic uart_tx_o
 );
     generate
         if (LANES != 4 && LANES != 8 && LANES != 16 && LANES != 32) begin : gen_illegal_lanes
@@ -35,6 +49,11 @@ module nexus32_soc #(
 
     localparam logic [17:0] IMEM_PAGE = 18'h00000; // 0x0000-0x3fff
     localparam logic [17:0] DMEM_PAGE = 18'h00004; // 0x10000-0x13fff
+    localparam logic [19:0] SYS_PAGE  = 20'h10006; // 0x10006000-0x10006fff
+    localparam logic [11:0] SYS_UART_TXDATA = 12'h000;
+    localparam logic [11:0] SYS_UART_STATUS = 12'h004;
+    localparam logic [11:0] SYS_INFO        = 12'h008;
+    localparam logic [31:0] SYS_INFO_VALUE  = {16'h4e58, 8'(CLK_MHZ), 8'(LANES)};
     localparam logic [31:0] FIRMWARE_BOOT_SIGNATURE = 32'h4e58_3332;
     localparam logic [31:0] FIRMWARE_PASS_SIGNATURE = 32'h600d_600d;
 
@@ -51,6 +70,7 @@ module nexus32_soc #(
 
     logic cpu_mem_is_imem;
     logic cpu_mem_is_dmem;
+    logic cpu_mem_is_sys;
     logic cpu_mem_is_local;
 
     typedef enum logic [1:0] {
@@ -70,7 +90,8 @@ module nexus32_soc #(
     typedef enum logic [1:0] {
         LOCAL_ZERO,
         LOCAL_IMEM,
-        LOCAL_DMEM
+        LOCAL_DMEM,
+        LOCAL_SYS
     } local_source_t;
 
     local_source_t local_source_q;
@@ -80,7 +101,14 @@ module nexus32_soc #(
     logic dmem_write_now;
     logic [31:0] imem_rdata_q;
     logic [31:0] dmem_rdata_q;
+    logic [31:0] sys_rdata_q;
     logic [31:0] local_rdata;
+
+    logic sys_access_now;
+    logic sys_txdata_store_now;
+    logic uart_tx_valid;
+    logic uart_tx_ready;
+    logic uart_overrun_q;
 
     logic accel_req_valid;
     logic accel_req_ready;
@@ -99,7 +127,27 @@ module nexus32_soc #(
 
     assign cpu_mem_is_imem = (cpu_mem_addr[31:14] == IMEM_PAGE);
     assign cpu_mem_is_dmem = (cpu_mem_addr[31:14] == DMEM_PAGE);
-    assign cpu_mem_is_local = cpu_mem_is_imem || cpu_mem_is_dmem;
+    assign cpu_mem_is_sys = (cpu_mem_addr[31:12] == SYS_PAGE);
+    assign cpu_mem_is_local = cpu_mem_is_imem || cpu_mem_is_dmem || cpu_mem_is_sys;
+
+    // A well-formed data access to the system page: aligned, not a fetch.
+    assign sys_access_now = (bridge_state_q == ST_IDLE) && !rst_i && cpu_mem_valid &&
+                            !cpu_mem_instr && cpu_mem_is_sys &&
+                            (cpu_mem_addr[1:0] == 2'b00);
+    assign sys_txdata_store_now = sys_access_now && (cpu_mem_wstrb == 4'b1111) &&
+                                  (cpu_mem_addr[11:0] == SYS_UART_TXDATA);
+    assign uart_tx_valid = sys_txdata_store_now && uart_tx_ready;
+
+    nexus32_uart_tx #(
+        .CLKS_PER_BIT(UART_CLKS_PER_BIT)
+    ) u_uart_tx (
+        .clk_i(clk_i),
+        .rst_i(rst_i),
+        .valid_i(uart_tx_valid),
+        .data_i(cpu_mem_wdata[7:0]),
+        .ready_o(uart_tx_ready),
+        .tx_o(uart_tx_o)
+    );
 
     assign accel_req_valid = (bridge_state_q == ST_IDLE) &&
                              cpu_mem_valid && !cpu_mem_is_local &&
@@ -141,6 +189,7 @@ module nexus32_soc #(
         case (local_source_q)
             LOCAL_IMEM: local_rdata = imem_rdata_q;
             LOCAL_DMEM: local_rdata = dmem_rdata_q;
+            LOCAL_SYS:  local_rdata = sys_rdata_q;
             default:    local_rdata = 32'd0;
         endcase
     end
@@ -167,6 +216,8 @@ module nexus32_soc #(
             local_fault_sticky_q <= 1'b0;
             firmware_booted_o <= 1'b0;
             firmware_pass_o <= 1'b0;
+            sys_rdata_q <= 32'd0;
+            uart_overrun_q <= 1'b0;
         end else begin
             case (bridge_state_q)
                 ST_IDLE: begin
@@ -209,6 +260,32 @@ module nexus32_soc #(
                                 local_source_q <= LOCAL_DMEM;
                             end
                             bridge_state_q <= ST_LOCAL_RESPONSE;
+                        end else if (cpu_mem_is_sys) begin
+                            // Fetches never reach here (rejected above).
+                            local_source_q <= LOCAL_ZERO;
+                            sys_rdata_q <= 32'd0;
+                            if (cpu_mem_addr[1:0] != 2'b00) begin
+                                local_fault_sticky_q <= 1'b1;
+                            end else if (|cpu_mem_wstrb) begin
+                                if (cpu_mem_addr[11:0] == SYS_UART_TXDATA) begin
+                                    if (cpu_mem_wstrb != 4'b1111)
+                                        local_fault_sticky_q <= 1'b1;
+                                    else if (!uart_tx_ready)
+                                        uart_overrun_q <= 1'b1;
+                                end else if ((cpu_mem_addr[11:0] != SYS_UART_STATUS) &&
+                                             (cpu_mem_addr[11:0] != SYS_INFO)) begin
+                                    local_fault_sticky_q <= 1'b1;
+                                end
+                            end else begin
+                                local_source_q <= LOCAL_SYS;
+                                case (cpu_mem_addr[11:0])
+                                    SYS_UART_TXDATA: sys_rdata_q <= 32'd0;
+                                    SYS_UART_STATUS: sys_rdata_q <= {30'd0, uart_overrun_q, uart_tx_ready};
+                                    SYS_INFO:        sys_rdata_q <= SYS_INFO_VALUE;
+                                    default:         local_fault_sticky_q <= 1'b1;
+                                endcase
+                            end
+                            bridge_state_q <= ST_LOCAL_RESPONSE;
                         end else if (accel_req_ready && accel_req_valid) begin
                             bridge_state_q <= ST_MMIO_WAIT;
                         end
@@ -238,8 +315,12 @@ module nexus32_soc #(
     assign cpu_bus_fault_o = local_fault_sticky_q | accel_bus_fault_sticky;
 
     picorv32 #(
+        // 32-bit cycle/instret counters stay available for firmware timing;
+        // the 64-bit halves, IRQ controller and IRQ timer are unused (no
+        // firmware reads them and irq is tied low), so they are disabled to
+        // save area.
         .ENABLE_COUNTERS(1'b1),
-        .ENABLE_COUNTERS64(1'b1),
+        .ENABLE_COUNTERS64(1'b0),
         .ENABLE_REGS_16_31(1'b1),
         .ENABLE_REGS_DUALPORT(1'b1),
         .LATCHED_MEM_RDATA(1'b0),
@@ -254,8 +335,8 @@ module nexus32_soc #(
         .ENABLE_MUL(1'b0),
         .ENABLE_FAST_MUL(1'b0),
         .ENABLE_DIV(1'b0),
-        .ENABLE_IRQ(1'b1),
-        .ENABLE_IRQ_TIMER(1'b1),
+        .ENABLE_IRQ(1'b0),
+        .ENABLE_IRQ_TIMER(1'b0),
         .REGS_INIT_ZERO(1'b1),
         .PROGADDR_RESET(32'h0000_0000),
         .PROGADDR_IRQ(32'h0000_0010),

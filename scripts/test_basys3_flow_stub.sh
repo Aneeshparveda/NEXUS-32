@@ -38,14 +38,17 @@ exec bash "$fixture_root/scripts/vendor_picorv32_impl.sh"
 EOF
   chmod +x "$fixture_root/scripts/vendor_picorv32.sh"
 
-  cat >"$fixture_root/scripts/build_smoke_firmware.sh" <<'EOF'
+  local firmware_name
+  for firmware_name in smoke demo; do
+    cat >"$fixture_root/scripts/build_${firmware_name}_firmware.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-fixture_root="$(cd "$(dirname "$0")/.." && pwd)"
-mkdir -p "$fixture_root/firmware"
-printf '%s\n' stub-firmware >"$fixture_root/firmware/nexus32_smoke.hex"
+fixture_root="\$(cd "\$(dirname "\$0")/.." && pwd)"
+mkdir -p "\$fixture_root/firmware"
+printf '%s\\n' stub-firmware >"\$fixture_root/firmware/nexus32_${firmware_name}.hex"
 EOF
-  chmod +x "$fixture_root/scripts/build_smoke_firmware.sh"
+    chmod +x "$fixture_root/scripts/build_${firmware_name}_firmware.sh"
+  done
 
   for source_rel in \
     rtl/fir_q16_mac.sv \
@@ -57,7 +60,7 @@ EOF
     rtl/fir_tap_bram.sv \
     rtl/fir_seq_accel.sv \
     rtl/nexus32_accel_bus.sv \
-    rtl/nexus32_soc.sv \
+    rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv \
     rtl/top_basys3.sv; do
     : >"$fixture_root/$source_rel"
   done
@@ -218,12 +221,16 @@ prepare_prebuilt_fixture() {
   local firmware_state="$3"
   prepare_vendor_fixture "$case_root" "$vendor_state"
   local fixture_root="$case_root/fixture"
-  rm -rf "$fixture_root/.git"
+  # Rename instead of rm -rf: a background git process may still be writing.
+  mv "$fixture_root/.git" "$case_root/fixture-git-removed"
   printf 'commit=%s\ndirty=0\n' 0123456789abcdef0123456789abcdef01234567 \
     >"$fixture_root/BUNDLE_COMMIT.txt"
   case "$firmware_state" in
-    valid) cp firmware/nexus32_smoke.hex "$fixture_root/firmware/nexus32_smoke.hex" ;;
-    corrupt) printf '%s\n' stub-firmware >"$fixture_root/firmware/nexus32_smoke.hex" ;;
+    valid) cp firmware/nexus32_smoke.hex firmware/nexus32_demo.hex "$fixture_root/firmware/" ;;
+    corrupt)
+      cp firmware/nexus32_smoke.hex "$fixture_root/firmware/nexus32_smoke.hex"
+      printf '%s\n' stub-firmware >"$fixture_root/firmware/nexus32_demo.hex"
+      ;;
   esac
 }
 
@@ -268,7 +275,7 @@ if [[ -e "$prebuilt_valid_root/fixture/vendor_script_invoked.txt" ]]; then
   printf '%s\n' 'ERROR: prebuilt mode invoked the bash vendor script.' >&2
   exit 1
 fi
-if [[ ! -s "$prebuilt_valid_root/output/firmware/nexus32_smoke.hex" ]]; then
+if ! cmp -s firmware/nexus32_demo.hex "$prebuilt_valid_root/output/firmware/nexus32_demo.hex"; then
   printf '%s\n' 'ERROR: prebuilt mode did not stage the firmware working copy.' >&2
   exit 1
 fi
@@ -289,8 +296,107 @@ for bad_case in "$prebuilt_wrong_root:$prebuilt_wrong_rc:different/unpinned Pico
   fi
 done
 
+# SoC clock argument and post-synthesis IMEM guard, on a valid prebuilt bundle.
+guard_root="$(mktemp -d "${TMPDIR:-/tmp}/nexus32-basys3-guard.XXXXXX")"
+prepare_prebuilt_fixture "$guard_root" valid valid
+guard_tcl="$guard_root/fixture/scripts/test_basys3_flow_stub.tcl"
+
+run_guard_case() {
+  local name="$1" imem_state="$2"
+  shift 2
+  set +e
+  if [[ -n "$imem_state" ]]; then
+    NEXUS32_INPUTS=prebuilt STUB_IMEM_BRAMS="$imem_state" env -u STUB_FAIL_STAGE \
+      tclsh "$guard_tcl" "$guard_root/$name" "$@" >"$guard_root/$name.log" 2>&1
+  else
+    NEXUS32_INPUTS=prebuilt env -u STUB_FAIL_STAGE -u STUB_IMEM_BRAMS \
+      tclsh "$guard_tcl" "$guard_root/$name" "$@" >"$guard_root/$name.log" 2>&1
+  fi
+  local rc=$?
+  set -e
+  printf '%s' "$rc"
+}
+
+clk50_rc="$(run_guard_case clk50 loaded 8 50)"
+if [[ "$clk50_rc" -ne 0 ]] || \
+   ! grep -Fq $'metadata\tsys_clk_mhz\tPASS\t\t50' "$guard_root/clk50/build_summary.tsv" || \
+   ! grep -Fq 'SYS_CLK_MHZ=50' "$guard_root/clk50/build_summary.tsv" || \
+   ! grep -Fq $'stage\tpost_synth.imem_init_check\tPASS' "$guard_root/clk50/build_summary.tsv" || \
+   ! grep -Fq 'IMEM init check: 2 of 2 IMEM block RAMs carry firmware data' "$guard_root/clk50.log"; then
+  printf 'ERROR: 50 MHz build with loaded IMEM did not pass; log: %s\n' "$guard_root/clk50.log" >&2
+  exit 1
+fi
+
+clk_bad_rc="$(run_guard_case clk75 loaded 8 75)"
+if [[ "$clk_bad_rc" -ne 2 ]] || ! grep -Fq 'SYS_CLK_MHZ must be one of 100, 50, or 25' "$guard_root/clk75.log"; then
+  printf 'ERROR: unsupported 75 MHz clock was not rejected; log: %s\n' "$guard_root/clk75.log" >&2
+  exit 1
+fi
+
+for imem_state in none zero; do
+  imem_rc="$(run_guard_case "imem_$imem_state" "$imem_state" 8)"
+  if [[ "$imem_rc" -eq 0 ]] || \
+     ! grep -Fq $'stage\tpost_synth.imem_init_check\tFAIL' "$guard_root/imem_$imem_state/build_summary.tsv" || \
+     ! grep -Fq $'stage\twrite_bitstream\tSKIPPED' "$guard_root/imem_$imem_state/build_summary.tsv"; then
+    printf 'ERROR: IMEM guard did not stop the flow for state %s; log: %s\n' \
+      "$imem_state" "$guard_root/imem_$imem_state.log" >&2
+    exit 1
+  fi
+done
+
+override_rc="$(NEXUS32_SKIP_IMEM_CHECK=1 run_guard_case imem_override none 8)"
+if [[ "$override_rc" -ne 0 ]] || ! grep -Fq 'overridden by NEXUS32_SKIP_IMEM_CHECK=1' "$guard_root/imem_override.log"; then
+  printf 'ERROR: NEXUS32_SKIP_IMEM_CHECK=1 did not override the IMEM guard; log: %s\n' \
+    "$guard_root/imem_override.log" >&2
+  exit 1
+fi
+
+# Key metrics: parsed from report-shaped stub output into the summaries and
+# metrics.txt; a negative WNS must yield TIMING_MET=NO (drives the 50 MHz retry).
+metrics_file="$guard_root/clk50/metrics.txt"
+for expected in 'BUILD_STATUS=PASS' 'TIMING_MET=YES' 'WNS_NS=0.512' 'WHS_NS=0.045' 'TNS_NS=-1.000' \
+                'LUT=4321' 'FF=3210' 'DSP=68' 'BRAM_TILES=11' 'IMEM_INIT_CHECK=PASS' \
+                'SYS_CLK_MHZ=50' 'FIRMWARE=demo' 'METRICS_SOURCE=post_implementation'; do
+  if ! grep -Fxq "$expected" "$metrics_file"; then
+    printf 'ERROR: metrics.txt is missing %s; file: %s\n' "$expected" "$metrics_file" >&2
+    exit 1
+  fi
+done
+if ! grep -Fq '| DSP | 68 |' "$guard_root/clk50/build_summary.md"; then
+  printf 'ERROR: build_summary.md lacks the key-metrics table\n' >&2
+  exit 1
+fi
+set +e
+NEXUS32_INPUTS=prebuilt STUB_IMEM_BRAMS=loaded STUB_WNS=-2.345 env -u STUB_FAIL_STAGE \
+  tclsh "$guard_tcl" "$guard_root/negative_wns" 8 >"$guard_root/negative_wns.log" 2>&1
+negative_rc=$?
+NEXUS32_INPUTS=prebuilt NEXUS32_FIRMWARE=smoke STUB_IMEM_BRAMS=loaded env -u STUB_FAIL_STAGE \
+  tclsh "$guard_tcl" "$guard_root/smoke_fw" 4 >"$guard_root/smoke_fw.log" 2>&1
+smoke_rc=$?
+NEXUS32_INPUTS=prebuilt NEXUS32_FIRMWARE=bogus env -u STUB_FAIL_STAGE \
+  tclsh "$guard_tcl" "$guard_root/bogus_fw" 4 >"$guard_root/bogus_fw.log" 2>&1
+bogus_rc=$?
+set -e
+if [[ "$negative_rc" -ne 0 ]] || ! grep -Fxq 'TIMING_MET=NO' "$guard_root/negative_wns/metrics.txt" || \
+   ! grep -Fxq 'WNS_NS=-2.345' "$guard_root/negative_wns/metrics.txt"; then
+  printf 'ERROR: negative WNS was not reported as TIMING_MET=NO; log: %s\n' "$guard_root/negative_wns.log" >&2
+  exit 1
+fi
+if [[ "$smoke_rc" -ne 0 ]] || ! grep -Fxq 'FIRMWARE=smoke' "$guard_root/smoke_fw/metrics.txt" || \
+   ! cmp -s firmware/nexus32_smoke.hex "$guard_root/smoke_fw/firmware/nexus32_demo.hex"; then
+  printf 'ERROR: NEXUS32_FIRMWARE=smoke did not select and stage the smoke image; log: %s\n' \
+    "$guard_root/smoke_fw.log" >&2
+  exit 1
+fi
+if [[ "$bogus_rc" -ne 2 ]] || ! grep -Fq "NEXUS32_FIRMWARE must be 'demo' or 'smoke'" "$guard_root/bogus_fw.log"; then
+  printf 'ERROR: an unknown NEXUS32_FIRMWARE was not rejected; log: %s\n' "$guard_root/bogus_fw.log" >&2
+  exit 1
+fi
+
 printf 'PASS: Basys-3 Vivado flow stub success and failure propagation checks\n'
 printf 'PASS: prebuilt-input (Windows bundle) mode accepted a valid bundle and rejected wrong-pin and corrupt-firmware bundles\n'
+printf 'PASS: key metrics parsed into build_summary and metrics.txt; negative WNS -> TIMING_MET=NO; firmware selection demo/smoke/invalid\n'
+printf 'PASS: SYS_CLK_MHZ argument (50 accepted, 75 rejected) and IMEM guard (none/zero fail, loaded pass, override honored)\n'
 printf 'Success artifacts: %s\n' "$success_output"
 printf 'Failure artifacts: %s\n' "$failure_output"
 printf 'Vendor fixture artifacts: %s %s %s\n' \

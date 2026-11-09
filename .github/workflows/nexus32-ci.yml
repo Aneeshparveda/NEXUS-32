@@ -85,6 +85,9 @@ jobs:
       - name: Run offline Vivado flow stub
         run: bash scripts/test_basys3_flow_stub.sh
 
+      - name: Test Windows evidence tools (board selection, evidence collector)
+        run: bash scripts/test_evidence_tools.sh
+
       - name: Run Python golden-model tests
         run: python3 -m unittest discover -s tests -v
 
@@ -99,6 +102,9 @@ jobs:
 
       - name: Run SoC smoke regression across LANES 4, 8, 16, and 32
         run: bash scripts/run_soc_smoke.sh all
+
+      - name: Run UART and board demo firmware regression across LANES 4, 8, 16, and 32
+        run: bash scripts/run_soc_demo.sh all
 
       - name: Check Basys-3 wrapper and XDC port consistency
         run: python3 scripts/check_basys3_constraints.py
@@ -115,7 +121,7 @@ jobs:
             rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
             rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
             rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-            rtl/nexus32_soc.sv rtl/top_basys3.sv \
+            rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv rtl/top_basys3.sv \
             2>&1 | tee results/verification-closure/verilator-lint.log
 
       - name: Run complete verification closure gate
@@ -123,6 +129,15 @@ jobs:
 
       - name: Run CPU bridge fault-data regression
         run: make test-fault
+
+      - name: Build the Windows Vivado handoff bundle (verified, not uploaded)
+        run: |
+          set -euo pipefail
+          bash scripts/make_vivado_bundle.sh
+          bundle="$(ls results/handoff/nexus32-vivado-*.zip)"
+          unzip -l "$bundle" | grep -q 'nexus32/vendor/picorv32/picorv32.v'
+          unzip -l "$bundle" | grep -q 'nexus32/firmware/nexus32_demo.hex'
+          unzip -l "$bundle" | grep -q 'nexus32/vivado/RUN_ALL.bat'
 
       - name: Upload compact verification diagnostics
         if: always()

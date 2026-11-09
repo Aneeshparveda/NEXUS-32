@@ -32,6 +32,7 @@ results/vivado/
 results/vivado_core/
 results/handoff/
 firmware/nexus32_smoke.hex
+firmware/nexus32_demo.hex
 firmware/nexus32_invalid_fetch.hex
 
 # Downloaded pinned PicoRV32 checkout

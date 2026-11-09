@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 390" width="1200" height="390" role="img" aria-labelledby="title desc">
+  <title id="title">Engine race: CYCLES_TOTAL per architecture</title>
+  <desc id="desc">Simulation, LANES=8, TAP_COUNT=8, 1024 samples, demo firmware through PicoRV32: parallel 5136 cycles, pipelined 9232 cycles, sequential 14352 cycles. Bars grow at one shared speed, so the shortest finishes first. Serialized shell; not standalone engine throughput.</desc>
+  <style>
+    .t { font-family: JetBrains Mono, Fira Code, SFMono-Regular, Menlo, Consolas, monospace; }
+    .lbl { font-size: 17px; font-weight: 800; letter-spacing: 2px; }
+    .sub { font-size: 11.5px; fill: #94a3b8; }
+    .num { font-size: 16px; font-weight: 700; fill: #f8fafc; }
+    .x { font-size: 12px; font-weight: 700; }
+  </style>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#060912"/><stop offset="1" stop-color="#140a26"/>
+    </linearGradient>
+    <linearGradient id="g-par" x1="0" x2="1"><stop offset="0" stop-color="#0891b2"/><stop offset="1" stop-color="#22d3ee"/></linearGradient>
+    <linearGradient id="g-pipe" x1="0" x2="1"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+    <linearGradient id="g-seq" x1="0" x2="1"><stop offset="0" stop-color="#be185d"/><stop offset="1" stop-color="#f472b6"/></linearGradient>
+    <filter id="glow" x="-10%" y="-60%" width="120%" height="220%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="390" rx="22" fill="url(#bg)"/>
+  <rect x="0.75" y="0.75" width="1198.5" height="388.5" rx="22" fill="none" stroke="#334155" stroke-width="1.5"/>
+  <text x="40" y="50" class="t" font-size="18" font-weight="800" letter-spacing="3" fill="#e2e8f0">ENGINE RACE</text>
+  <text x="226" y="50" class="t sub">CYCLES_TOTAL for one 1024-sample block · shorter is faster</text>
+  <text x="1160" y="50" text-anchor="end" class="t" font-size="12" letter-spacing="2" fill="#fbbf24">SIMULATION</text>
+
+  <!-- finish-line ticks -->
+  <g stroke="#1e293b" stroke-width="1">
+    <path d="M 240 78 V 300 M 430 78 V 300 M 620 78 V 300 M 810 78 V 300 M 1000 78 V 300"/>
+  </g>
+  <g class="t sub" text-anchor="middle">
+    <text x="240" y="318">0</text><text x="430" y="318">3.6k</text><text x="620" y="318">7.2k</text><text x="810" y="318">10.8k</text><text x="1000" y="318">14.4k</text>
+  </g>
+
+  <!-- PAR -->
+  <text x="40" y="118" class="t lbl" fill="#67e8f9">PARALLEL</text>
+  <text x="40" y="136" class="t sub">LANES multipliers + tree</text>
+  <rect x="240" y="96" width="760" height="36" rx="8" fill="#0f172a"/>
+  <rect x="240" y="96" width="0" height="36" rx="8" fill="url(#g-par)" filter="url(#glow)">
+    <animate attributeName="width" values="0;0;272;272" keyTimes="0;0.05;0.229;1" dur="7s" repeatCount="indefinite"/>
+  </rect>
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.229;0.239;1" dur="7s" repeatCount="indefinite"/>
+    <text x="524" y="120" class="t num">5,136</text>
+    <rect x="1018" y="98" width="142" height="32" rx="16" fill="#083344" stroke="#22d3ee"/>
+    <text x="1089" y="119" text-anchor="middle" class="t x" fill="#a5f3fc">1st · 2.79× SEQ</text>
+  </g>
+
+  <!-- PIPE -->
+  <text x="40" y="188" class="t lbl" fill="#c4b5fd">PIPELINED</text>
+  <text x="40" y="206" class="t sub">elastic registered tree</text>
+  <rect x="240" y="166" width="760" height="36" rx="8" fill="#0f172a"/>
+  <rect x="240" y="166" width="0" height="36" rx="8" fill="url(#g-pipe)" filter="url(#glow)">
+    <animate attributeName="width" values="0;0;489;489" keyTimes="0;0.05;0.372;1" dur="7s" repeatCount="indefinite"/>
+  </rect>
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.372;0.382;1" dur="7s" repeatCount="indefinite"/>
+    <text x="741" y="190" class="t num">9,232</text>
+    <rect x="1018" y="168" width="142" height="32" rx="16" fill="#1e1036" stroke="#a78bfa"/>
+    <text x="1089" y="189" text-anchor="middle" class="t x" fill="#ddd6fe">2nd · 1.55× SEQ</text>
+  </g>
+
+  <!-- SEQ -->
+  <text x="40" y="258" class="t lbl" fill="#f9a8d4">SEQUENTIAL</text>
+  <text x="40" y="276" class="t sub">one MAC per cycle</text>
+  <rect x="240" y="236" width="760" height="36" rx="8" fill="#0f172a"/>
+  <rect x="240" y="236" width="0" height="36" rx="8" fill="url(#g-seq)" filter="url(#glow)">
+    <animate attributeName="width" values="0;0;760;760" keyTimes="0;0.05;0.55;1" dur="7s" repeatCount="indefinite"/>
+  </rect>
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1;1" keyTimes="0;0.55;0.56;1" dur="7s" repeatCount="indefinite"/>
+    <text x="896" y="260" class="t num">14,352</text>
+    <rect x="1018" y="238" width="142" height="32" rx="16" fill="#3b0a24" stroke="#f472b6"/>
+    <text x="1089" y="259" text-anchor="middle" class="t x" fill="#fbcfe8">3rd · baseline</text>
+  </g>
+
+  <text x="40" y="350" class="t sub">LANES=8 · TAP_COUNT=8 · 1024 samples · demo firmware through PicoRV32 · all three match the golden checksum</text>
+  <text x="40" y="370" class="t sub">Serialized shell (one request in flight): system cycles, not standalone engine throughput. Vivado and board numbers pending.</text>
+</svg>

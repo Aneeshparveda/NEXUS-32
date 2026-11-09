@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 
-REQUIRED_PORTS = {"clk_100mhz", "btn_center", "led[0]", "led[1]", "led[2]", "led[3]"}
+REQUIRED_PORTS = {"clk_100mhz", "btn_center", "led[0]", "led[1]", "led[2]", "led[3]", "uart_tx"}
 
 
 def _module_header(top_text: str) -> str:

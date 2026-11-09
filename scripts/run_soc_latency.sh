@@ -32,7 +32,7 @@ compile_command=(
   rtl/fir_tap_bram.sv
   rtl/fir_seq_accel.sv
   rtl/nexus32_accel_bus.sv
-  rtl/nexus32_soc.sv
+  rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv
   tests/rtl/tb_nexus32_soc_latency.sv
 )
 

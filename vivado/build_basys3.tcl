@@ -6,18 +6,25 @@
 #
 # Invocation:
 #   vivado -mode batch -source vivado/build_basys3.tcl
-#   vivado -mode batch -source vivado/build_basys3.tcl -tclargs <output_dir> <LANES>
+#   vivado -mode batch -source vivado/build_basys3.tcl -tclargs <output_dir> <LANES> [<SYS_CLK_MHZ>]
+#
+# SYS_CLK_MHZ is 100 (default, board oscillator direct), 50 or 25 (MMCM in
+# top_basys3); use 50 when the 100 MHz build misses timing.
 #
 # A relative output directory is resolved from the directory in which Vivado
 # was launched.  The default is <repo>/results/vivado/basys3.
 #
 # Input modes (environment variable NEXUS32_INPUTS):
-#   build    - provision PicoRV32 and compile the smoke firmware with bash and
-#              a RISC-V toolchain before synthesis (default on Linux/macOS).
-#   prebuilt - use the already-provisioned vendor/picorv32 and
-#              firmware/nexus32_smoke.hex shipped in a handoff bundle
-#              (scripts/make_vivado_bundle.sh).  Needs no bash, toolchain,
-#              network, or git (default on Windows).
+#   build    - provision PicoRV32 and compile the selected firmware with bash
+#              and a RISC-V toolchain before synthesis (default on Linux/macOS).
+#   prebuilt - use the already-provisioned vendor/picorv32 and firmware image
+#              shipped in a handoff bundle (scripts/make_vivado_bundle.sh).
+#              Needs no bash, toolchain, network, or git (default on Windows).
+#
+# Firmware (environment variable NEXUS32_FIRMWARE):
+#   demo  - firmware/nexus32_demo.hex (default): all three engines on a
+#           1024-sample block, golden-checksum verdict, UART report.
+#   smoke - firmware/nexus32_smoke.hex: the original four-tap LED-only check.
 
 set launch_dir [file normalize [pwd]]
 set script_dir [file dirname [file normalize [info script]]]
@@ -25,8 +32,8 @@ set root_dir [file normalize [file join $script_dir ..]]
 set part "xc7a35tcpg236-1"
 set top "top_basys3"
 
-if {[llength $argv] > 2} {
-    puts stderr "ERROR: expected at most <output_dir> and <LANES> arguments"
+if {[llength $argv] > 3} {
+    puts stderr "ERROR: expected at most <output_dir>, <LANES> and <SYS_CLK_MHZ> arguments"
     exit 2
 }
 
@@ -57,6 +64,20 @@ if {[lsearch -exact [list 4 8 16 32] $lanes] < 0} {
     exit 2
 }
 
+set sys_clk_mhz 100
+if {[llength $argv] >= 3 && [lindex $argv 2] ne ""} {
+    set sys_clk_arg [lindex $argv 2]
+    if {![string is integer -strict $sys_clk_arg]} {
+        puts stderr "ERROR: SYS_CLK_MHZ must be one of 100, 50, or 25; got '$sys_clk_arg'"
+        exit 2
+    }
+    set sys_clk_mhz [expr {int($sys_clk_arg)}]
+}
+if {[lsearch -exact [list 100 50 25] $sys_clk_mhz] < 0} {
+    puts stderr "ERROR: SYS_CLK_MHZ must be one of 100, 50, or 25; got '$sys_clk_mhz'"
+    exit 2
+}
+
 if {[info exists ::env(NEXUS32_INPUTS)] && [string trim $::env(NEXUS32_INPUTS)] ne ""} {
     set input_mode [string tolower [string trim $::env(NEXUS32_INPUTS)]]
 } elseif {$::tcl_platform(platform) eq "windows"} {
@@ -73,13 +94,24 @@ if {[lsearch -exact [list build prebuilt] $input_mode] < 0} {
 set picorv32_pin "ef203c2b0a3fb793280f5114941416c425c5b461"
 set picorv32_sha256 "0836050971b3c6cdd28ac3b1e5719a67fb645161912bef1e472e63995ceb0622"
 
+set firmware_name "demo"
+if {[info exists ::env(NEXUS32_FIRMWARE)] && [string trim $::env(NEXUS32_FIRMWARE)] ne ""} {
+    set firmware_name [string tolower [string trim $::env(NEXUS32_FIRMWARE)]]
+}
+if {[lsearch -exact [list demo smoke] $firmware_name] < 0} {
+    puts stderr "ERROR: NEXUS32_FIRMWARE must be 'demo' or 'smoke'; got '$firmware_name'"
+    exit 2
+}
+
 set xdc_relpath "constraints/basys3.xdc"
-set firmware_relpath "firmware/nexus32_smoke.hex"
+set firmware_relpath "firmware/nexus32_${firmware_name}.hex"
+# top_basys3's IMEM_INIT_FILE default, relative to the synthesis directory.
+set top_default_firmware_relpath "firmware/nexus32_demo.hex"
 set xdc_path [file normalize [file join $root_dir $xdc_relpath]]
 set firmware_path [file normalize [file join $root_dir $firmware_relpath]]
 set vendor_source [file normalize [file join $root_dir vendor picorv32 picorv32.v]]
 set vendor_script [file normalize [file join $root_dir scripts vendor_picorv32.sh]]
-set firmware_script [file normalize [file join $root_dir scripts build_smoke_firmware.sh]]
+set firmware_script [file normalize [file join $root_dir scripts build_${firmware_name}_firmware.sh]]
 
 set report_dir [file normalize [file join $output_root reports]]
 set post_synth_report_dir [file join $report_dir post_synth]
@@ -101,6 +133,7 @@ set source_relpaths [list \
     "rtl/fir_tap_bram.sv" \
     "rtl/fir_seq_accel.sv" \
     "rtl/nexus32_accel_bus.sv" \
+    "rtl/nexus32_uart_tx.sv" \
     "rtl/nexus32_soc.sv" \
     "rtl/top_basys3.sv" \
 ]
@@ -387,6 +420,63 @@ proc verify_prebuilt_inputs {vendor_source firmware_path pin expected_sha256} {
     return "Pinned commit $pin recorded; $hash_note; firmware has 4096 hex words"
 }
 
+# Parse WNS/TNS/WHS/THS from a report_timing_summary file's "Design Timing
+# Summary" table. Missing or unparsable values stay N/A.
+proc parse_timing_summary {path} {
+    set values [dict create WNS_NS N/A TNS_NS N/A WHS_NS N/A THS_NS N/A]
+    if {![file exists $path]} {
+        return $values
+    }
+    set fp [open $path r]
+    set lines [split [read $fp] "\n"]
+    close $fp
+    set in_summary 0
+    for {set i 0} {$i < [llength $lines]} {incr i} {
+        set line [lindex $lines $i]
+        if {[regexp {Design Timing Summary} $line]} {
+            set in_summary 1
+            continue
+        }
+        if {$in_summary && [regexp {^\s*WNS\(ns\)} $line]} {
+            set fields [regexp -all -inline {\S+} [lindex $lines [expr {$i + 2}]]]
+            if {[llength $fields] >= 6} {
+                foreach key {WNS_NS TNS_NS} index {0 1} {
+                    set value [lindex $fields $index]
+                    if {[string is double -strict $value]} { dict set values $key $value }
+                }
+                foreach key {WHS_NS THS_NS} index {4 5} {
+                    set value [lindex $fields $index]
+                    if {[string is double -strict $value]} { dict set values $key $value }
+                }
+            }
+            break
+        }
+    }
+    return $values
+}
+
+# Parse used LUT/FF/DSP/BRAM-tile counts from a report_utilization file.
+proc parse_utilization_report {path} {
+    set values [dict create LUT N/A FF N/A DSP N/A BRAM_TILES N/A]
+    if {![file exists $path]} {
+        return $values
+    }
+    set fp [open $path r]
+    while {[gets $fp line] >= 0} {
+        if {[regexp {^\|\s*Slice LUTs\*?\s*\|\s*([0-9]+)} $line -> value]} {
+            dict set values LUT $value
+        } elseif {[regexp {^\|\s*Slice Registers\s*\|\s*([0-9]+)} $line -> value]} {
+            dict set values FF $value
+        } elseif {[regexp {^\|\s*DSPs\s*\|\s*([0-9]+)} $line -> value]} {
+            dict set values DSP $value
+        } elseif {[regexp {^\|\s*Block RAM Tile\s*\|\s*([0-9.]+)} $line -> value]} {
+            dict set values BRAM_TILES $value
+        }
+    }
+    close $fp
+    return $values
+}
+
 # Return {matching_block_rams block_rams_with_nonzero_INIT_00} for block RAM
 # cells whose hierarchical name matches pattern, or {-1 0} when the Vivado
 # query commands are unavailable (for example in the offline stub).
@@ -412,6 +502,8 @@ puts "Output Root     : $output_root"
 puts "Target Part     : $part"
 puts "Top Module      : $top"
 puts "LANES           : $lanes"
+puts "Firmware        : $firmware_name ($firmware_relpath)"
+puts "SoC Clock       : $sys_clk_mhz MHz"
 puts "Input Mode      : $input_mode"
 puts "Firmware Path   : $firmware_path"
 puts "XDC Path        : $xdc_path"
@@ -456,7 +548,7 @@ if {$input_mode eq "prebuilt"} {
 
     set prebuilt_message ""
     set vendor_status [run_required_stage "vendor_rtl" $vendor_source \
-        "verify prebuilt vendor/picorv32 and firmware/nexus32_smoke.hex" {
+        "verify prebuilt vendor/picorv32 and $firmware_relpath" {
         set prebuilt_message [verify_prebuilt_inputs $vendor_source $firmware_path \
             $picorv32_pin $picorv32_sha256]
         puts "Prebuilt inputs : $prebuilt_message"
@@ -530,10 +622,11 @@ set directory_status [run_required_stage "report_directories" $report_dir \
 }]
 
 # Fallback for the IMEM image: if synthesis ignores the IMEM_INIT_FILE generic,
-# top_basys3's relative default "firmware/nexus32_smoke.hex" resolves against
-# the synthesis working directory (output_root).  The post-synthesis IMEM
-# guard below still rejects an uninitialized instruction memory.
-set firmware_fallback_path [file join $output_root firmware nexus32_smoke.hex]
+# top_basys3's relative default ($top_default_firmware_relpath) resolves
+# against the synthesis working directory (output_root), so the selected
+# image is copied to that path.  The post-synthesis IMEM guard below still
+# rejects an uninitialized instruction memory.
+set firmware_fallback_path [file normalize [file join $output_root $top_default_firmware_relpath]]
 run_required_stage "firmware_working_copy" $firmware_fallback_path \
     "file copy -force $firmware_path $firmware_fallback_path" {
     file mkdir [file dirname $firmware_fallback_path]
@@ -576,11 +669,12 @@ set top_status [run_required_stage "set_top" "" "set_property top $top <current_
 # Verilog string parameters must be passed with literal double quotes; the
 # path itself uses forward slashes on every host (file normalize).
 # NEXUS32_IMEM_GENERIC=0 omits the generic and relies on the working copy at
-# <output_root>/firmware/nexus32_smoke.hex (escape hatch if a Vivado release
+# <output_root>/firmware/nexus32_demo.hex (escape hatch if a Vivado release
 # rejects the quoted string generic); the IMEM guard still checks the result.
-set synth_generics [list "LANES=$lanes" "IMEM_INIT_FILE=\"$firmware_path\""]
+set synth_generics [list "LANES=$lanes" "SYS_CLK_MHZ=$sys_clk_mhz" \
+    "IMEM_INIT_FILE=\"$firmware_path\""]
 if {[info exists ::env(NEXUS32_IMEM_GENERIC)] && $::env(NEXUS32_IMEM_GENERIC) eq "0"} {
-    set synth_generics [list "LANES=$lanes"]
+    set synth_generics [list "LANES=$lanes" "SYS_CLK_MHZ=$sys_clk_mhz"]
 }
 set synth_command [join [list synth_design -top $top -part $part \
     -generic $synth_generics] " "]
@@ -591,14 +685,20 @@ set synth_status [run_required_stage "synthesis" "" $synth_command {
 
 # A missing $readmemh file is only a synthesis warning in Vivado and yields an
 # all-zero IMEM: the bitstream would build and the board would never boot.
-# Fail the flow instead when IMEM block RAMs exist but none is initialized.
+# An all-zero ROM is also optimized away entirely, so "no IMEM block RAM" is
+# treated as the same failure. NEXUS32_SKIP_IMEM_CHECK=1 overrides the check
+# after a manual review of utilization_hierarchical.rpt.
+set skip_imem_check [expr {[info exists ::env(NEXUS32_SKIP_IMEM_CHECK)] && \
+    $::env(NEXUS32_SKIP_IMEM_CHECK) eq "1"}]
 run_required_stage "post_synth.imem_init_check" "" \
     "get_property INIT_00 on RAMB cells matching *imem*" {
     lassign [count_initialized_brams "*imem*"] imem_brams imem_initialized
     if {$imem_brams < 0} {
         puts "NOTE: IMEM init check skipped: Vivado cell queries unavailable"
+    } elseif {$skip_imem_check} {
+        puts "WARNING: IMEM init check overridden by NEXUS32_SKIP_IMEM_CHECK=1 ($imem_initialized of $imem_brams IMEM block RAMs initialized)"
     } elseif {$imem_brams == 0} {
-        puts "WARNING: no block RAM matched *imem*; IMEM may be in LUTRAM. Inspect utilization_hierarchical.rpt."
+        error "no block RAM matches *imem*: the firmware image was probably not loaded and the empty ROM was optimized away ($firmware_path). If utilization_hierarchical.rpt shows IMEM in LUTs instead, set NEXUS32_SKIP_IMEM_CHECK=1"
     } elseif {$imem_initialized == 0} {
         error "IMEM maps to $imem_brams block RAMs but none has a non-zero INIT_00; the firmware image was not loaded ($firmware_path)"
     } else {
@@ -857,7 +957,7 @@ if {[info commands current_project] ne "" && [info commands close_project] ne ""
 }
 
 proc write_tsv_summary {path final_status} {
-    global stage_records artifact_records commit_sha vivado_version part top lanes \
+    global stage_records artifact_records commit_sha vivado_version part top lanes sys_clk_mhz firmware_name build_metrics \
         output_root firmware_path xdc_path riscv_cc riscv_objcopy bitstream_checksum \
         source_relpaths root_dir metadata_status tools_status source_status checksum_status
     set fp [open $path w]
@@ -868,6 +968,11 @@ proc write_tsv_summary {path final_status} {
     puts $fp [tsv_row [list metadata target_part PASS "" $part ""]]
     puts $fp [tsv_row [list metadata top PASS "" $top ""]]
     puts $fp [tsv_row [list metadata lanes PASS "" $lanes ""]]
+    puts $fp [tsv_row [list metadata sys_clk_mhz PASS "" $sys_clk_mhz ""]]
+    puts $fp [tsv_row [list metadata firmware PASS $firmware_path $firmware_name ""]]
+    foreach key {TIMING_MET WNS_NS TNS_NS WHS_NS THS_NS LUT FF DSP BRAM_TILES IMEM_INIT_CHECK METRICS_SOURCE} {
+        puts $fp [tsv_row [list metric $key PASS "" [dict get $build_metrics $key] ""]]
+    }
     puts $fp [tsv_row [list metadata output_root PASS $output_root $output_root ""]]
     puts $fp [tsv_row [list metadata firmware_path PASS $firmware_path $firmware_path ""]]
     puts $fp [tsv_row [list metadata xdc_path PASS $xdc_path $xdc_path ""]]
@@ -891,7 +996,7 @@ proc write_tsv_summary {path final_status} {
 }
 
 proc write_md_summary {path final_status} {
-    global stage_records artifact_records commit_sha vivado_version part top lanes \
+    global stage_records artifact_records commit_sha vivado_version part top lanes sys_clk_mhz firmware_name build_metrics \
         output_root firmware_path xdc_path riscv_cc riscv_objcopy bitstream_checksum \
         source_relpaths root_dir
     set fp [open $path w]
@@ -903,6 +1008,8 @@ proc write_md_summary {path final_status} {
     puts $fp "- **Target part**: [markdown_field $part]"
     puts $fp "- **Top module**: [markdown_field $top]"
     puts $fp "- **LANES**: [markdown_field $lanes]"
+    puts $fp "- **SoC clock**: [markdown_field $sys_clk_mhz] MHz"
+    puts $fp "- **Firmware program**: [markdown_field $firmware_name]"
     puts $fp "- **Output root**: `[markdown_field $output_root]`"
     puts $fp "- **Firmware**: `[markdown_field $firmware_path]`"
     puts $fp "- **Constraints**: `[markdown_field $xdc_path]`"
@@ -934,10 +1041,55 @@ proc write_md_summary {path final_status} {
         puts $fp "- `[markdown_field [file normalize [file join $root_dir $source_rel]]]`"
     }
     puts $fp ""
-    puts $fp "Report files and checkpoints are listed only when their producing stage records them.  No utilization or timing metric is inferred by this summary; inspect the generated Vivado reports for the actual tool results."
+    puts $fp "## Key metrics"
+    puts $fp ""
+    puts $fp "Parsed verbatim from the [markdown_field [dict get $build_metrics METRICS_SOURCE]] reports; N/A means the report or value was not available."
+    puts $fp ""
+    puts $fp "| Metric | Value |"
+    puts $fp "| :--- | :--- |"
+    foreach key {TIMING_MET WNS_NS TNS_NS WHS_NS THS_NS LUT FF DSP BRAM_TILES IMEM_INIT_CHECK} {
+        puts $fp "| $key | [markdown_field [dict get $build_metrics $key]] |"
+    }
+    puts $fp ""
+    puts $fp "Report files and checkpoints are listed only when their producing stage records them.  Key metrics are copied from the named Vivado reports, never estimated; inspect those reports for full detail."
     close $fp
     ensure_artifact $path
 }
+
+# Key metrics, parsed verbatim from the generated reports (post-implementation
+# when available, otherwise post-synthesis). Nothing is estimated.
+set metrics_source "post_implementation"
+set metrics_timing_report $post_impl_timing_summary
+set metrics_util_report $post_impl_utilization
+if {![file exists $metrics_timing_report] || ![file exists $metrics_util_report]} {
+    set metrics_source "post_synth"
+    set metrics_timing_report $post_synth_timing_summary
+    set metrics_util_report $post_synth_utilization
+}
+if {![file exists $metrics_timing_report] && ![file exists $metrics_util_report]} {
+    set metrics_source "none"
+}
+set build_metrics [dict merge \
+    [parse_timing_summary $metrics_timing_report] \
+    [parse_utilization_report $metrics_util_report]]
+set timing_met "UNKNOWN"
+if {$metrics_source eq "post_implementation"} {
+    set wns_value [dict get $build_metrics WNS_NS]
+    set whs_value [dict get $build_metrics WHS_NS]
+    if {[string is double -strict $wns_value] && [string is double -strict $whs_value]} {
+        set timing_met [expr {($wns_value >= 0.0 && $whs_value >= 0.0) ? "YES" : "NO"}]
+    }
+}
+set imem_check_status "NOT_RUN"
+foreach stage_record $stage_records {
+    if {[lindex $stage_record 0] eq "post_synth.imem_init_check"} {
+        set imem_check_status [lindex $stage_record 1]
+    }
+}
+dict set build_metrics TIMING_MET $timing_met
+dict set build_metrics METRICS_SOURCE $metrics_source
+dict set build_metrics IMEM_INIT_CHECK $imem_check_status
+puts "Key metrics ($metrics_source): WNS=[dict get $build_metrics WNS_NS] ns WHS=[dict get $build_metrics WHS_NS] ns timing_met=$timing_met LUT=[dict get $build_metrics LUT] FF=[dict get $build_metrics FF] DSP=[dict get $build_metrics DSP] BRAM_tiles=[dict get $build_metrics BRAM_TILES]"
 
 set summary_status_before_write [expr {$flow_failed ? "FAIL" : "PASS"}]
 set summary_write_error [catch {
@@ -962,6 +1114,28 @@ puts "Build summary TSV: $tsv_summary_path"
 puts "Build summary MD : $md_summary_path"
 puts "Bitstream path   : $bitstream_path"
 puts "================================================================="
+
+# metrics.txt: flat KEY=VALUE record for scripts (RUN_ALL.bat, the evidence
+# collector). Written even when the flow failed, so callers can tell why.
+set metrics_path [file join $output_root metrics.txt]
+if {[catch {
+    set fp [open $metrics_path w]
+    puts $fp "BUILD_STATUS=$final_status"
+    puts $fp "LANES=$lanes"
+    puts $fp "SYS_CLK_MHZ=$sys_clk_mhz"
+    puts $fp "FIRMWARE=$firmware_name"
+    puts $fp "COMMIT=$commit_sha"
+    puts $fp "VIVADO_VERSION=$vivado_version"
+    foreach key {TIMING_MET WNS_NS TNS_NS WHS_NS THS_NS LUT FF DSP BRAM_TILES IMEM_INIT_CHECK METRICS_SOURCE} {
+        puts $fp "$key=[dict get $build_metrics $key]"
+    }
+    puts $fp "BITSTREAM_SHA256=$bitstream_checksum"
+    close $fp
+} metrics_message]} {
+    puts stderr "WARNING: could not write $metrics_path: $metrics_message"
+} else {
+    puts "Metrics file     : $metrics_path"
+}
 
 set final_exit_code [expr {$flow_failed ? 1 : 0}]
 exit $final_exit_code

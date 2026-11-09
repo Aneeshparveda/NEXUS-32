@@ -101,13 +101,62 @@ Windows has no bash or RISC-V toolchain, so the flow defaults to
 `bash scripts/make_vivado_bundle.sh`, verifies the pinned revision, the
 PicoRV32 SHA-256 (when Tcl's `sha256` package is available) and the 4096-word
 firmware image, and never calls bash, git or the toolchain. Run
-`vivado\RUN_VIVADO_BASYS3.bat <LANES>`. The full procedure is in
+`vivado\RUN_VIVADO_BASYS3.bat <LANES> [MHZ]`. The full procedure is in
 [`docs/VIVADO_DAY.md`](../docs/VIVADO_DAY.md). Set `NEXUS32_INPUTS=build` or
 `prebuilt` to override the platform default on any host.
 
 After synthesis the flow checks that IMEM block RAMs carry a non-zero
 `INIT_00`; a missing `$readmemh` image (a Vivado warning, not an error) would
-otherwise produce a bitstream with empty instruction memory.
+otherwise produce a bitstream with empty instruction memory, or no IMEM at all
+once the empty ROM is optimized away.
+
+### SoC clock
+
+The optional third argument (`MHZ` for the `.bat`) selects the SoC clock:
+`100` (default) drives the SoC straight from the 100 MHz oscillator; `50` or
+`25` instantiate an `MMCME2_BASE` (VCO 1000 MHz) plus `BUFG` in
+`top_basys3.sv`. Vivado derives the generated clock from the existing
+`create_clock`, so timing is checked at the slower period. The MMCM branch is
+elaborated only for 50/25, so simulation of the default build needs no Xilinx
+primitive models; the 50/25 path itself is checked only by Vivado.
+
+### Firmware
+
+`NEXUS32_FIRMWARE` selects the IMEM image: `demo` (default,
+`firmware/nexus32_demo.hex`) runs a 1024-sample block on all three engines,
+compares each against a golden checksum generated from the Python model by
+`scripts/gen_demo_expected.py`, sets the LEDs and prints a report over the
+UART (`uart_tx`, pin A18, 115200 8N1); `smoke` (`firmware/nexus32_smoke.hex`)
+is the original four-tap LED-only check.
+
+### Key metrics and metrics.txt
+
+After the flow, `build_summary.md` gains a key-metrics table and
+`metrics.txt` records `KEY=VALUE` lines: `BUILD_STATUS`, `LANES`,
+`SYS_CLK_MHZ`, `FIRMWARE`, `COMMIT`, `VIVADO_VERSION`, `TIMING_MET`
+(`YES` when post-implementation WNS and WHS are both ≥ 0), `WNS_NS`, `TNS_NS`,
+`WHS_NS`, `THS_NS`, `LUT`, `FF`, `DSP`, `BRAM_TILES`, `IMEM_INIT_CHECK`,
+`METRICS_SOURCE` and `BITSTREAM_SHA256`. Values are copied from the Vivado
+reports; `N/A` means the report or value was absent. `metrics.txt` is written
+even when the flow fails.
+
+## One-click Windows flow and evidence tools
+
+| Launcher (`vivado\`) | What it does |
+|---|---|
+| `RUN_ALL.bat` | L4 and L8 board builds at 100 MHz, L8 at 50 MHz if L8 missed timing, the core sweep, then `COLLECT_EVIDENCE.bat`; logs every step to `results\run_all_log.txt` |
+| `RUN_VIVADO_BASYS3.bat [LANES] [MHZ]` | One board build into `results\vivado\basys3_l<LANES>[_<MHZ>mhz]\` |
+| `RUN_VIVADO_CORES.bat` | Out-of-context characterization sweep into `results\vivado_core\` |
+| `PROGRAM_BOARD.bat [build]` | `program_board.tcl`: programs the first build that passed, passed the IMEM check and met timing (preference L8, L8@50, L4, ...), via the Hardware Manager |
+| `READ_UART.bat [COMx]` | `read_uart.ps1`: 15 s capture of the board report into `results\evidence\uart_log.txt` |
+| `COLLECT_EVIDENCE.bat` | `collect_evidence.tcl`: `results\evidence\EVIDENCE.md` (board and core tables, UART verdict, run log, provenance), text reports copied, zipped to `nexus32-evidence.zip` |
+| `OPEN_IN_VIVADO_GUI.bat [build]` | Opens the routed checkpoint in the GUI for floorplan/report screenshots |
+
+`find_vivado.bat` is the shared Vivado lookup. `NEXUS32_NO_PAUSE=1` suppresses
+the final pause (set by `RUN_ALL.bat`). The board-selection and collector
+logic are covered offline by `scripts/test_evidence_tools.sh`; the
+Hardware Manager and serial-port steps can only be exercised on Windows with
+a board.
 
 The flow uses an explicit non-project sequence: in-memory project creation,
 source and XDC ingestion, synthesis, post-synthesis reports/checkpoint,
@@ -166,7 +215,7 @@ iverilog -g2012 -Wall -s top_basys3 -o /tmp/nexus32_top_basys3.vvp \
   rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
   rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
   rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-  rtl/nexus32_soc.sv rtl/top_basys3.sv
+  rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv rtl/top_basys3.sv
 ```
 
 These checks establish source-level consistency and simulator elaboration only.

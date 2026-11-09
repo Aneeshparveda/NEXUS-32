@@ -54,12 +54,6 @@ module fir_pipelined_engine #(
 
     logic signed [63:0] product_comb [0:LANES-1];
 
-    // Tree registers: level 0 has LANES elements, level k has LANES >> k elements
-    for (genvar level = 0; level <= DEPTH; level++) begin : gen_tree
-        localparam int ELEMS = LANES >> level;
-        logic signed [71:0] val_q [0:ELEMS-1];
-    end
-
     logic [STAGES-1:0] valid_q;
     logic [STAGES-1:0] error_q;
     logic [STAGES-1:0] stage_ready;
@@ -144,33 +138,36 @@ module fir_pipelined_engine #(
     end
 
     // -------------------------------------------------------------------------
-    // Datapath: Stage 0 parallel products sign-extended into 72-bit lanes
+    // Datapath: tree registers. Level 0 holds the LANES sign-extended products
+    // (stage 0); level k holds LANES >> k pairwise sums (stage k). Each level
+    // owns its val_q array and is its only writer, from inside its own scope;
+    // the previous level is only read through gen_tree[...] names.
     // -------------------------------------------------------------------------
-    always_ff @(posedge clk_i) begin
-        if (stage_ready[0]) begin
-            if (in_valid_i) begin
-                for (int i = 0; i < LANES; i++) begin
-                    if (!invalid_input && (tap_count_i > i[5:0]))
-                        gen_tree[0].val_q[i] <= $signed({{8{product_comb[i][63]}}, product_comb[i]});
-                    else
-                        gen_tree[0].val_q[i] <= 72'sd0;
+    for (genvar lvl = 0; lvl <= DEPTH; lvl++) begin : gen_tree
+        localparam int ELEMS = LANES >> lvl;
+        logic signed [71:0] val_q [0:ELEMS-1];
+
+        if (lvl == 0) begin : gen_products
+            always_ff @(posedge clk_i) begin
+                if (stage_ready[0]) begin
+                    if (in_valid_i) begin
+                        for (int i = 0; i < LANES; i++) begin
+                            if (!invalid_input && (tap_count_i > i[5:0]))
+                                val_q[i] <= $signed({{8{product_comb[i][63]}}, product_comb[i]});
+                            else
+                                val_q[i] <= 72'sd0;
+                        end
+                    end
                 end
             end
-        end
-    end
-
-    // -------------------------------------------------------------------------
-    // Datapath: Stages 1..DEPTH pairwise tree additions
-    // Each level owns its own val_q register array; single-writer per array.
-    // -------------------------------------------------------------------------
-    for (genvar lvl = 1; lvl <= DEPTH; lvl++) begin : gen_stages
-        localparam int NUM_PAIRS = LANES >> lvl;
-        always_ff @(posedge clk_i) begin
-            if (stage_ready[lvl]) begin
-                if (valid_q[lvl-1]) begin
-                    for (int i = 0; i < NUM_PAIRS; i++) begin
-                        gen_tree[lvl].val_q[i] <= gen_tree[lvl-1].val_q[2*i]
-                                                + gen_tree[lvl-1].val_q[2*i+1];
+        end else begin : gen_pair_sums
+            always_ff @(posedge clk_i) begin
+                if (stage_ready[lvl]) begin
+                    if (valid_q[lvl-1]) begin
+                        for (int i = 0; i < ELEMS; i++) begin
+                            val_q[i] <= gen_tree[lvl-1].val_q[2*i]
+                                      + gen_tree[lvl-1].val_q[2*i+1];
+                        end
                     end
                 end
             end

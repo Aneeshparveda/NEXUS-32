@@ -5,8 +5,8 @@
 # propagation without requiring Vivado or a license.
 
 set requested_argv $::argv
-if {[llength $requested_argv] != 2} {
-    puts stderr "usage: tclsh scripts/test_basys3_flow_stub.tcl <output_dir> <LANES>"
+if {[llength $requested_argv] < 2 || [llength $requested_argv] > 3} {
+    puts stderr "usage: tclsh scripts/test_basys3_flow_stub.tcl <output_dir> <LANES> \[<SYS_CLK_MHZ>\]"
     exit 2
 }
 
@@ -80,8 +80,40 @@ proc stub_report {arglist} {
     write_stub_artifact [report_path $arglist] "stub report"
 }
 
-proc report_utilization {args} { stub_report $args }
-proc report_timing_summary {args} { stub_report $args }
+# Report bodies shaped like Vivado's, so the flow's metric parsers run.
+# STUB_WNS / STUB_WHS choose the slack values (defaults meet timing).
+proc stub_timing_summary {arglist} {
+    set wns "0.512"
+    set whs "0.045"
+    if {[info exists ::env(STUB_WNS)]} { set wns $::env(STUB_WNS) }
+    if {[info exists ::env(STUB_WHS)]} { set whs $::env(STUB_WHS) }
+    set body [join [list \
+        "Timing Report (stub)" \
+        "| Design Timing Summary" \
+        "| ---------------------" \
+        "" \
+        "    WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints      WHS(ns)      THS(ns)  THS Failing Endpoints  THS Total Endpoints" \
+        "    -------      -------  ---------------------  -------------------      -------      -------  ---------------------  -------------------" \
+        "    $wns       -1.000                      3                 5000      $whs        0.000                      0                 5000" \
+    ] "\n"]
+    write_stub_artifact [report_path $arglist] $body
+}
+
+proc stub_utilization {arglist} {
+    set body [join [list \
+        "+-------------------------+------+-------+------------+-----------+-------+" \
+        "|        Site Type        | Used | Fixed | Prohibited | Available | Util% |" \
+        "+-------------------------+------+-------+------------+-----------+-------+" \
+        "| Slice LUTs              | 4321 |     0 |          0 |     20800 | 20.77 |" \
+        "| Slice Registers         | 3210 |     0 |          0 |     41600 |  7.72 |" \
+        "| Block RAM Tile          |   11 |     0 |          0 |        50 | 22.00 |" \
+        "| DSPs                    |   68 |     0 |          0 |        90 | 75.56 |" \
+    ] "\n"]
+    write_stub_artifact [report_path $arglist] $body
+}
+
+proc report_utilization {args} { stub_utilization $args }
+proc report_timing_summary {args} { stub_timing_summary $args }
 proc report_timing {args} { stub_report $args }
 proc report_clocks {args} { stub_report $args }
 proc report_drc {args} { stub_report $args }
@@ -96,6 +128,25 @@ proc write_bitstream {args} {
 
 proc report_property {args} {
     write_stub_artifact [report_path $args] "stub properties"
+}
+
+# Optional netlist queries for the post-synthesis IMEM guard. Without
+# STUB_IMEM_BRAMS these commands stay undefined and the guard reports that
+# the check was skipped. none = no IMEM block RAM (empty ROM optimized away),
+# zero = IMEM block RAMs with all-zero INIT_00, loaded = initialized IMEM.
+if {[info exists ::env(STUB_IMEM_BRAMS)]} {
+    proc get_cells {args} {
+        if {$::env(STUB_IMEM_BRAMS) eq "none"} {
+            return [list]
+        }
+        return [list u_soc/imem_reg_0 u_soc/imem_reg_1]
+    }
+    proc get_property {args} {
+        if {$::env(STUB_IMEM_BRAMS) eq "zero"} {
+            return "256'h[string repeat 0 64]"
+        }
+        return "256'h[string repeat 0 56]DEADBEEF"
+    }
 }
 
 set script_root [file normalize [file join [file dirname [info script]] ..]]

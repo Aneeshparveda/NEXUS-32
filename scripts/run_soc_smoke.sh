@@ -38,7 +38,7 @@ run_soc_suite() {
     rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
     rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
     rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-    rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc.sv
+    rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc.sv
   vvp "results/rtl/tb_nexus32_soc_l${lanes}.vvp"
 
   echo "4. tb_nexus32_soc_multiarch (LANES=${lanes})"
@@ -49,7 +49,7 @@ run_soc_suite() {
     rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
     rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
     rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-    rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc_multiarch.sv
+    rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc_multiarch.sv
   vvp "results/rtl/tb_nexus32_soc_multiarch_l${lanes}.vvp"
 
   echo "5. tb_nexus32_soc_reset_recovery (LANES=${lanes})"
@@ -60,7 +60,7 @@ run_soc_suite() {
     rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
     rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
     rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-    rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc_reset_recovery.sv
+    rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc_reset_recovery.sv
   vvp "results/rtl/tb_nexus32_soc_reset_recovery_l${lanes}.vvp"
 
   echo "6. tb_nexus32_invalid_fetch (LANES=${lanes})"
@@ -71,7 +71,7 @@ run_soc_suite() {
     rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
     rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
     rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-    rtl/nexus32_soc.sv tests/rtl/tb_nexus32_invalid_fetch.sv
+    rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv tests/rtl/tb_nexus32_invalid_fetch.sv
   vvp "results/rtl/tb_nexus32_invalid_fetch_l${lanes}.vvp"
 
   echo "7. tb_nexus32_soc_invalid_tap (LANES=${lanes})"
@@ -82,7 +82,7 @@ run_soc_suite() {
     rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
     rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
     rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-    rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc_invalid_tap.sv
+    rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc_invalid_tap.sv
   vvp "results/rtl/tb_nexus32_soc_invalid_tap_l${lanes}.vvp"
 
   echo "8. tb_nexus32_soc_invalid_arch (LANES=${lanes})"
@@ -93,7 +93,7 @@ run_soc_suite() {
     rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
     rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
     rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-    rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc_invalid_arch.sv
+    rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc_invalid_arch.sv
   vvp "results/rtl/tb_nexus32_soc_invalid_arch_l${lanes}.vvp"
 
   # The timeout stimulus runs once at the representative maximum-lane build;
@@ -107,7 +107,7 @@ run_soc_suite() {
       rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
       rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
       rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-      rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc_timeout.sv
+      rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv tests/rtl/tb_nexus32_soc_timeout.sv
     vvp "results/rtl/tb_nexus32_soc_timeout_l${lanes}.vvp"
   fi
 }
