@@ -7,6 +7,9 @@
 //   led[2] = accelerator DONE or firmware PASS signature observed in DMEM[2]
 //   led[3] = trap, CPU/system bus fault, or accelerator error
 //
+// uart_tx is the FPGA-to-PC serial line on the Basys 3 USB-UART bridge
+// (115200 8N1). The default demo firmware prints its report there.
+//
 // LANES defaults to 8: the runtime selector instantiates all three engines,
 // and 16/32-lane builds are expected to exceed the XC7A35T's 90 DSP48E1
 // slices (pre-Vivado estimate; the utilization report is authoritative).
@@ -22,11 +25,12 @@
 module top_basys3 #(
     parameter int LANES = 8,
     parameter int SYS_CLK_MHZ = 100,
-    parameter IMEM_INIT_FILE = "firmware/nexus32_smoke.hex"
+    parameter IMEM_INIT_FILE = "firmware/nexus32_demo.hex"
 ) (
     input  logic       clk_100mhz,
     input  logic       btn_center,
-    output logic [3:0] led
+    output logic [3:0] led,
+    output logic       uart_tx
 );
     logic sys_clk;
     logic clk_locked;
@@ -107,7 +111,8 @@ module top_basys3 #(
 
     nexus32_soc #(
         .IMEM_INIT_FILE(IMEM_INIT_FILE),
-        .LANES(LANES)
+        .LANES(LANES),
+        .CLK_MHZ(SYS_CLK_MHZ)
     ) u_soc (
         .clk_i(sys_clk),
         .rst_i(rst_i),
@@ -117,7 +122,8 @@ module top_basys3 #(
         .accelerator_done_o(accelerator_done),
         .accelerator_error_o(accelerator_error),
         .firmware_booted_o(firmware_booted),
-        .firmware_pass_o(firmware_pass)
+        .firmware_pass_o(firmware_pass),
+        .uart_tx_o(uart_tx)
     );
 
     // Keep the indicators tied to architectural events rather than a free-

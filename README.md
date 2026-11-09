@@ -46,6 +46,8 @@ Most FIR-accelerator demos show one architecture and one number. NEXUS-32 asks a
 | **Fault paths, tested** | Invalid fetch, invalid arch, invalid tap, protected access, timeout, sub-word access, reset recovery — all with benches, not just happy paths |
 | **One-command reproduction** | `make setup` once (networked), then `make test` fully offline; Docker image reproduces the same gate |
 | **Verification closure gate** | Independent 1024-sample block/timing scoreboard, 15 PASS / 0 FAIL in the closure receipt |
+| **Self-reporting board demo** | Default firmware runs a 1024-sample block on all three engines, checks each against a checksum derived from the Python golden model, and prints cycle counts over UART (115200 8N1); LEDs show boot / PASS / fault |
+| **One-click Vivado evidence** | `vivado\RUN_ALL.bat` builds L4 and L8, retries at 50 MHz (MMCM) if 100 MHz misses timing, runs the core sweep, and writes `EVIDENCE.md` + one zip; `PROGRAM_BOARD.bat` / `READ_UART.bat` add the board run ([runbook](docs/VIVADO_DAY.md)) |
 
 ## Architecture
 
@@ -61,6 +63,7 @@ flowchart TD
     SAMPLE["Sample BRAM<br/>1024 x 32<br/>0x0002_1000–0x0002_1FFF"]
     RESULT["Result BRAM<br/>1024 x 32, host read-only<br/>0x0002_2000–0x0002_2FFF"]
     ACCEL["fir_seq_accel.sv<br/>accelerator CSR shell<br/>CSRs at 0x1000_5000"]
+    SYS["System page 0x1000_6000<br/>nexus32_uart_tx.sv (115200 8N1)<br/>SYS_INFO: LANES, clock"]
     TAP["fir_tap_bram.sv<br/>synchronous tap BRAM"]
     SEL["fir_arch_selector.sv<br/>runtime architecture selector"]
     SEQ["fir_seq_engine.sv<br/>Sequential"]
@@ -71,6 +74,7 @@ flowchart TD
     SOC --> IMEM
     SOC --> DMEM
     SOC --> BUS
+    SOC --> SYS
     BUS --> COEFF
     BUS --> SAMPLE
     BUS --> RESULT
@@ -108,7 +112,7 @@ flowchart TD
     GOLD["Python golden model<br/>golden_model/fir_q16.py"]
     RTL["SystemVerilog RTL<br/>rtl/ + tests/rtl/<br/>differential + SoC benches"]
     FW["Assembly firmware<br/>firmware/<br/>block, sub-word, fault paths"]
-    CI["GitHub Actions CI<br/>19 named steps<br/>simulation + toolchain only"]
+    CI["GitHub Actions CI<br/>22 named steps<br/>simulation + toolchain only"]
     OOC["Vivado OOC characterisation<br/>(NOT YET DONE)"]
     BOARD4["Board build LANES = 4<br/>(NOT YET DONE)"]
     BOARD16["Board build LANES = 8<br/>(NOT YET DONE)"]
@@ -143,6 +147,7 @@ The pipelined count rises by exactly 1024 cycles per LANES doubling (8198, 9222,
 
 - **SoC START-to-verdict latency, LANES=32, simulation only: 129 cycles** (START to verdict, verdict `0x600d600d`). This is **not** `CYCLES_TOTAL` and **not** a board latency.
 - Block-1024 sequential-only: `cycles_total` = **38976**.
+- Board demo firmware through the CPU (`scripts/run_soc_demo.sh`, simulation, `TAP_COUNT = LANES`, 1024 samples): every engine matches the golden checksum at every LANES. `CYCLES_TOTAL`: LANES=4 SEQ 10248 / PAR 5128 / PIPE 8200; LANES=8 14352 / 5136 / 9232; LANES=16 22560 / 5152 / 10272; LANES=32 38976 / 5184 / 11328 (same serialized-shell caveat).
 - Verification closure: **PASS=15, FAIL=0, NOT_RUN=0**.
 
 ## Tech stack
@@ -209,7 +214,7 @@ First argument: output directory. Second: lane count (`4`, `8`, `16`, or `32`). 
 1. Connect and power a Digilent Basys 3 rev-B board over USB.
 2. In Vivado Hardware Manager, open the hardware target and select the FPGA device.
 3. Program it with `results/vivado/basys3/top_basys3.bit`.
-4. Release the centre button. Confirm `led[0]` = firmware boot, `led[2]` = accelerator completion / firmware PASS, `led[3]` stays low (no trap, bus fault, or accelerator error). `led[1]` may show the busy interval.
+4. Release the centre button. Confirm `led[0]` = firmware boot, `led[2]` = accelerator completion / firmware PASS, `led[3]` stays low (no trap, bus fault, or accelerator error). `led[1]` may show the busy interval. With the default demo firmware, a terminal on the board's USB serial port (115200 8N1) shows the per-engine report ending in `NEXUS32 RESULT: PASS`; on Windows, `vivado\PROGRAM_BOARD.bat` and `vivado\READ_UART.bat` automate this.
 5. Record the bitstream identity, observed LED behaviour, board revision, and any failures alongside the Vivado reports.
 
 <!-- TODO: add deployment evidence — bitstream SHA-256, LED observation notes, dated board photo per LANES build. -->
@@ -225,6 +230,8 @@ bash scripts/run_differential_smoke.sh all
 bash scripts/run_soc_smoke.sh all
 python3 scripts/check_basys3_constraints.py
 bash scripts/run_verification_closure.sh
+bash scripts/run_soc_demo.sh all          # UART unit test + board demo firmware, LANES 4/8/16/32
+bash scripts/test_evidence_tools.sh       # Windows board-selection and evidence tools, offline
 ```
 
 Gated additionally (not in `make test` itself): `make test-fault`, `make test-all`. Manual runners (not in any gate — a PASS here is still the only evidence for CPU-driven sub-word access, CPU-driven 1024-sample blocks, protected-access sweep behaviour, and Python-model-vs-engine agreement, and they must still be run after RTL/firmware changes touching those paths):
@@ -248,6 +255,7 @@ Passing CI is simulation and toolchain evidence only; it does not perform Vivado
 | Sample BRAM | `0x0002_1000–0x0002_1FFF` | Host R/W while idle; accelerator source while owned |
 | Result BRAM | `0x0002_2000–0x0002_2FFF` | Host read-only; accelerator result destination |
 | Accelerator CSRs | `0x1000_5000–0x1000_5FFF` | Control, status, counters, debug registers |
+| System page | `0x1000_6000–0x1000_6FFF` | `0x00` UART_TXDATA (W), `0x04` UART_STATUS (TX_READY, sticky TX_OVERRUN), `0x08` SYS_INFO (`0x4E58`, CLK_MHZ, LANES) |
 
 Diagnostic behaviour (does not by itself set accelerator `STATUS.ERROR`): unmapped pages → `BUS_UNMAPPED`, data `0xDEAD_BEEF`; mapped malformed/reserved → `BUS_ACCESS`, zero data; result writes → `RESULT_WRITE_FORBIDDEN`, zero data; reads of owned memory → `MEM_OWNERSHIP`, data `0xBAD0_0001`; owned coefficient/sample writes → `MEM_OWNERSHIP`, zero data, no BRAM side effect. All with `rsp_error=1`.
 
@@ -294,18 +302,20 @@ results/        Generated simulation outputs (not committed in bulk)
 
 - [x] Three-engine comparison under one Q16.16 contract, with golden model
 - [x] Serialized block controller (1..1024 samples), CSR shell, ownership interlock
-- [x] Differential + SoC benches, verification closure (15 PASS / 0 FAIL), CI gate (19 named steps)
+- [x] Differential + SoC benches, verification closure (15 PASS / 0 FAIL), CI gate (22 named steps)
 - [x] Basys 3 wrapper + XDC source-integrated
 - [ ] Vivado OOC characterisation (LANES sweep) — laptop-day phase
-- [ ] Board builds starting with LANES=4 (board LANES is chosen after Vivado synthesis utilisation is known; LANES=8 is the candidate, not a promised fit): bitstream + LED telemetry + dated photos
+- [ ] Board builds starting with LANES=4 (board LANES is chosen after Vivado synthesis utilisation is known; LANES=8 is the candidate, not a promised fit): bitstream + LED and UART telemetry + dated photos
 - [ ] Release v1.0.0: README results with real Vivado numbers, per-arch `.bit` in Releases
-- [ ] After v1.0.0: UART/data channel, C firmware, formal checks, power analysis
+- [x] Self-reporting board demo (UART TX, golden-checksum verdict) and one-click Windows Vivado evidence flow
+- [ ] After the first Vivado data: pipelined multiplies where timing requires them, streaming shell (overlapped fetch, multiple in-flight requests) so the comparison shows engine throughput
+- [ ] After v1.0.0: UART receive/command channel, C firmware, formal checks, power analysis
 
 ## Known limitations (deliberate, documented)
 
 - Integrated wrapper is single-buffered and serializes one outstanding operation. Sample B / ping-pong memory, DMA, streaming interfaces, and AutoArch policy are out of scope.
 - Selector/SoC measurements include wrapper + serialization overhead — never present them as standalone architecture throughput or PPA.
-- UART/GPIO/timer/IRQ/debug-monitor integration and a full SoC bus fabric are out of scope.
+- The system page provides a transmit-only UART and a build-info register; UART receive, GPIO, timer, interrupts, a debug monitor and a full SoC bus fabric are out of scope. PicoRV32 is built without its IRQ controller.
 - The direct pipelined engine's nominal `cycles_o` (`DEPTH + 1`, 6 at LANES=32) and its measured transfer latency are intentionally distinct; stalled elapsed latency is not a standalone performance claim.
 
 ## Contributing, security, citation

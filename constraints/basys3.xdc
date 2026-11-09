@@ -21,3 +21,7 @@ set_property PACKAGE_PIN U19 [get_ports {led[2]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led[2]}]
 set_property PACKAGE_PIN V19 [get_ports {led[3]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led[3]}]
+
+# USB-UART bridge: FPGA transmit to the PC (Digilent name RsTx).
+set_property PACKAGE_PIN A18 [get_ports {uart_tx}]
+set_property IOSTANDARD LVCMOS33 [get_ports {uart_tx}]

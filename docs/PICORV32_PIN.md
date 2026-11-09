@@ -4,7 +4,7 @@ NEXUS-32 uses upstream `YosysHQ/picorv32` at exact commit `ef203c2b0a3fb793280f5
 
 Run `bash scripts/vendor_picorv32.sh` to clone upstream, check out the full commit hash, verify the resolved `HEAD`, and copy `picorv32.v`, `COPYING`, and a revision record into `vendor/picorv32/`. The vendor directory deliberately has no nested `.git` repository.
 
-The CPU baseline is RV32I: compressed instructions, M extension, fast multiplier, and divider are disabled. Counters, zeroed initial registers, reset address `0x00000000`, IRQ vector `0x00000010`, IRQ support, and stack address `0x00014000` are configured. External IRQ inputs are tied low in this smoke milestone; IRQ peripherals and firmware policy remain future work.
+The CPU baseline is RV32I: compressed instructions, M extension, fast multiplier, and divider are disabled. 32-bit cycle/instret counters, zeroed initial registers, reset address `0x00000000` and stack address `0x00014000` are configured. The IRQ controller, IRQ timer and 64-bit counter halves are disabled (no firmware uses them; `irq` is tied low), which saves area; interrupt support remains future work.
 
 ## Memory map in the CPU smoke SoC
 
@@ -14,9 +14,10 @@ The CPU baseline is RV32I: compressed instructions, M extension, fast multiplier
 - Sample A: `0x00021000..0x00021fff`
 - Result: `0x00022000..0x00022fff` (CPU read-only)
 - Accelerator CSRs: `0x10005000..0x10005fff`
+- System page: `0x10006000..0x10006fff` (UART_TXDATA, UART_STATUS, SYS_INFO; answered locally by the CPU bridge)
 
 The smoke firmware loads a four-tap Q16.16 vector, launches the sequential engine, polls sticky DONE, reads `0x00022000`, checks `0x00020000` (2.0 in Q16.16), and writes a PASS sentinel to DMEM.
 
 ## Known boundary
 
-This is a single-core milestone: no DMA, UART, GPIO, timer/IRQ controller, Sample B, stream double buffer, or full debug-monitor CSRs. PicoRV32's native memory interface has no dedicated bus-error input; the bridge exposes sticky fault status and returns zero on errored MMIO reads. Vivado synthesis, BRAM inference, timing, utilization, and bitstream generation remain unverified.
+This is a single-core milestone: no DMA, UART receive, GPIO, timer/IRQ controller, Sample B, stream double buffer, or full debug-monitor CSRs. PicoRV32's native memory interface has no dedicated bus-error input; the bridge exposes sticky fault status and returns zero on errored MMIO reads. Vivado synthesis, BRAM inference, timing, utilization, and bitstream generation remain unverified.

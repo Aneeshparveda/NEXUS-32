@@ -23,13 +23,13 @@ SMOKE_FIRMWARE := firmware/nexus32_smoke.hex
 VERILATOR_LOG := results/verification-closure/verilator-lint.log
 
 .PHONY: setup test test-fault test-all check-tool-selection check-vendor check-prerequisites \
-	python-tests toolchain rtl differential status-property soc soc-latency basys3 vivado-flow-stub provenance-test verilator \
+	python-tests toolchain rtl differential status-property soc soc-demo soc-latency basys3 vivado-flow-stub evidence-tools provenance-test verilator \
 	verification-closure
 
 # The full regression is intentionally offline: it never runs make setup.
 # Run that target once on a connected machine to provision the pinned source
 # and firmware images required by the SoC checks.
-test: status-property check-prerequisites python-tests toolchain rtl differential soc soc-latency basys3 vivado-flow-stub provenance-test verilator verification-closure
+test: status-property check-prerequisites python-tests toolchain rtl differential soc soc-demo soc-latency basys3 vivado-flow-stub evidence-tools provenance-test verilator verification-closure
 
 test-fault: check-vendor
 	@mkdir -p results/rtl
@@ -45,7 +45,7 @@ test-fault: check-vendor
 		rtl/fir_tap_bram.sv \
 		rtl/fir_seq_accel.sv \
 		rtl/nexus32_accel_bus.sv \
-		rtl/nexus32_soc.sv \
+		rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv \
 		tests/rtl/tb_nexus32_soc_fault_data.sv
 	@vvp results/rtl/tb_nexus32_soc_fault_data.vvp
 
@@ -95,6 +95,7 @@ setup: check-tool-selection
 	@printf '%s\n' 'Provisioning pinned PicoRV32 and preparing firmware images...'
 	@bash scripts/vendor_picorv32.sh
 	@bash scripts/build_smoke_firmware.sh
+	@bash scripts/build_demo_firmware.sh
 	@bash scripts/build_multiarch_firmware.sh
 	@bash scripts/build_invalid_fetch_firmware.sh
 	@printf '%s\n' 'Setup complete.'
@@ -117,6 +118,9 @@ status-property:
 soc:
 	@bash scripts/run_soc_smoke.sh all
 
+soc-demo:
+	@bash scripts/run_soc_demo.sh all
+
 soc-latency:
 	@bash scripts/run_soc_latency.sh
 
@@ -125,6 +129,9 @@ basys3:
 
 vivado-flow-stub:
 	@bash scripts/test_basys3_flow_stub.sh
+
+evidence-tools:
+	@bash scripts/test_evidence_tools.sh
 
 provenance-test:
 	@tclsh scripts/test_core_characterization_provenance.tcl
@@ -136,7 +143,7 @@ verilator:
 		rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
 		rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
 		rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-		rtl/nexus32_soc.sv rtl/top_basys3.sv \
+		rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv rtl/top_basys3.sv \
 		2>&1 | tee "$(VERILATOR_LOG)"
 
 verification-closure:

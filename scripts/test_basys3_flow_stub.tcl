@@ -80,8 +80,40 @@ proc stub_report {arglist} {
     write_stub_artifact [report_path $arglist] "stub report"
 }
 
-proc report_utilization {args} { stub_report $args }
-proc report_timing_summary {args} { stub_report $args }
+# Report bodies shaped like Vivado's, so the flow's metric parsers run.
+# STUB_WNS / STUB_WHS choose the slack values (defaults meet timing).
+proc stub_timing_summary {arglist} {
+    set wns "0.512"
+    set whs "0.045"
+    if {[info exists ::env(STUB_WNS)]} { set wns $::env(STUB_WNS) }
+    if {[info exists ::env(STUB_WHS)]} { set whs $::env(STUB_WHS) }
+    set body [join [list \
+        "Timing Report (stub)" \
+        "| Design Timing Summary" \
+        "| ---------------------" \
+        "" \
+        "    WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints      WHS(ns)      THS(ns)  THS Failing Endpoints  THS Total Endpoints" \
+        "    -------      -------  ---------------------  -------------------      -------      -------  ---------------------  -------------------" \
+        "    $wns       -1.000                      3                 5000      $whs        0.000                      0                 5000" \
+    ] "\n"]
+    write_stub_artifact [report_path $arglist] $body
+}
+
+proc stub_utilization {arglist} {
+    set body [join [list \
+        "+-------------------------+------+-------+------------+-----------+-------+" \
+        "|        Site Type        | Used | Fixed | Prohibited | Available | Util% |" \
+        "+-------------------------+------+-------+------------+-----------+-------+" \
+        "| Slice LUTs              | 4321 |     0 |          0 |     20800 | 20.77 |" \
+        "| Slice Registers         | 3210 |     0 |          0 |     41600 |  7.72 |" \
+        "| Block RAM Tile          |   11 |     0 |          0 |        50 | 22.00 |" \
+        "| DSPs                    |   68 |     0 |          0 |        90 | 75.56 |" \
+    ] "\n"]
+    write_stub_artifact [report_path $arglist] $body
+}
+
+proc report_utilization {args} { stub_utilization $args }
+proc report_timing_summary {args} { stub_timing_summary $args }
 proc report_timing {args} { stub_report $args }
 proc report_clocks {args} { stub_report $args }
 proc report_drc {args} { stub_report $args }

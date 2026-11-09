@@ -5,7 +5,7 @@
 # generated inputs a Windows Vivado host cannot produce itself (no bash, RISC-V
 # toolchain, or network needed there):
 #   vendor/picorv32/{picorv32.v,COPYING,REVISION.txt}  (pinned, verified)
-#   firmware/nexus32_smoke.hex                         (freshly rebuilt)
+#   firmware/nexus32_demo.hex, nexus32_smoke.hex       (freshly rebuilt)
 # plus BUNDLE_COMMIT.txt for provenance, since the zip carries no .git.
 # Batch files are converted to CRLF so cmd.exe labels work.
 #
@@ -25,6 +25,7 @@ sha256_file() {
 # from the current firmware/nexus32_smoke.S.
 bash scripts/vendor_picorv32.sh
 bash scripts/build_smoke_firmware.sh
+bash scripts/build_demo_firmware.sh
 
 commit="$(git rev-parse HEAD)"
 short="$(git rev-parse --short HEAD)"
@@ -52,7 +53,7 @@ done < <(git ls-files -z --cached --others --exclude-standard)
 mkdir -p "$stage/vendor/picorv32" "$stage/firmware"
 cp -p vendor/picorv32/picorv32.v vendor/picorv32/COPYING vendor/picorv32/REVISION.txt \
   "$stage/vendor/picorv32/"
-cp -p firmware/nexus32_smoke.hex "$stage/firmware/nexus32_smoke.hex"
+cp -p firmware/nexus32_smoke.hex firmware/nexus32_demo.hex "$stage/firmware/"
 
 find "$stage" -name '*.bat' -print0 | while IFS= read -r -d '' bat; do
   perl -pi -e 's/\r?\n/\r\n/' "$bat"
@@ -63,7 +64,8 @@ commit=$commit
 dirty=$dirty
 created_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 picorv32_sha256=$(sha256_file vendor/picorv32/picorv32.v)
-firmware_sha256=$(sha256_file firmware/nexus32_smoke.hex)
+firmware_smoke_sha256=$(sha256_file firmware/nexus32_smoke.hex)
+firmware_demo_sha256=$(sha256_file firmware/nexus32_demo.hex)
 EOF
 
 mkdir -p "$OUT_DIR"
