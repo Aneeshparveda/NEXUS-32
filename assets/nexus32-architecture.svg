@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" width="1200" height="640" role="img" aria-labelledby="title desc">
+  <title id="title">NEXUS-32 architecture</title>
+  <desc id="desc">PicoRV32 with IMEM and DMEM behind a CPU bridge; a local system page with a UART transmitter and SYS_INFO; an accelerator bus with an ownership interlock in front of coefficient, sample and result block RAMs and the fir_seq_accel CSR shell; the shell feeds a runtime architecture selector with sequential, parallel and pipelined FIR engines and a shared Q16.16 post-processor that commits results to result RAM. Board I/O: 100 MHz clock with optional MMCM, reset button, four LEDs and UART to a PC.</desc>
+  <style>
+    .t { font-family: JetBrains Mono, Fira Code, SFMono-Regular, Menlo, Consolas, monospace; }
+    .h { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; }
+    .s { font-size: 11.5px; fill: #94a3b8; }
+    .a { font-size: 11px; fill: #7dd3fc; }
+    .cpu  { fill: #0b1530; stroke: #22d3ee; }
+    .mem  { fill: #0b1a24; stroke: #2dd4bf; }
+    .bus  { fill: #160f2e; stroke: #a78bfa; }
+    .acc  { fill: #1f0c26; stroke: #f472b6; }
+    .io   { fill: #111827; stroke: #64748b; }
+    .box  { stroke-width: 1.6; }
+    .wire { fill: none; stroke: #334155; stroke-width: 2; }
+    .wire-hot { fill: none; stroke: #22d3ee; stroke-width: 1.4; opacity: 0.55; }
+  </style>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#060912"/><stop offset="1" stop-color="#120a24"/>
+    </linearGradient>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#1e293b"/>
+    </pattern>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <path id="p-cpu-bridge" d="M 300 150 H 340"/>
+    <path id="p-bridge-bus" d="M 540 150 H 580"/>
+    <path id="p-bus-csr" d="M 800 150 H 840"/>
+    <path id="p-bus-ram" d="M 690 196 V 236"/>
+    <path id="p-bridge-sys" d="M 440 196 V 236"/>
+    <path id="p-sys-uart" d="M 440 320 V 512"/>
+    <path id="p-csr-sel" d="M 990 196 V 236"/>
+    <path id="p-ram-shell" d="M 800 312 H 820 V 180 H 840"/>
+    <path id="p-sel-par" d="M 990 286 V 306"/>
+    <path id="p-post-result" d="M 840 448 H 820 V 364 H 800"/>
+  </defs>
+
+  <rect width="1200" height="640" rx="22" fill="url(#bg)"/>
+  <rect width="1200" height="640" rx="22" fill="url(#dots)"/>
+  <rect x="0.75" y="0.75" width="1198.5" height="638.5" rx="22" fill="none" stroke="#334155" stroke-width="1.5"/>
+
+  <text x="36" y="44" class="t h" fill="#e2e8f0">SYSTEM MAP</text>
+  <text x="170" y="44" class="t s">top_basys3 → nexus32_soc → nexus32_accel_bus → fir_seq_accel → fir_arch_selector</text>
+  <rect x="30" y="66" width="1140" height="404" rx="14" fill="none" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="6 6"/>
+  <text x="1160" y="86" text-anchor="end" class="t a" fill="#64748b">nexus32_soc</text>
+
+  <!-- wires -->
+  <g class="wire">
+    <use href="#p-cpu-bridge"/><use href="#p-bridge-bus"/><use href="#p-bus-csr"/><use href="#p-bus-ram"/>
+    <use href="#p-bridge-sys"/><use href="#p-sys-uart"/><use href="#p-csr-sel"/><use href="#p-ram-shell"/>
+    <use href="#p-post-result"/>
+    <path d="M 360 196 V 214 H 115 V 236"/><path d="M 360 214 H 245 V 236"/>
+    <path d="M 886 286 V 306"/><use href="#p-sel-par"/><path d="M 1094 286 V 306"/>
+    <path d="M 886 404 V 424"/><path d="M 990 404 V 424"/><path d="M 1094 404 V 424"/>
+    <path d="M 800 260 H 820"/>
+  </g>
+  <g class="wire-hot">
+    <use href="#p-cpu-bridge"/><use href="#p-bridge-bus"/><use href="#p-bus-csr"/><use href="#p-csr-sel"/><use href="#p-post-result"/>
+  </g>
+
+  <!-- CPU + local memories -->
+  <rect x="60" y="104" width="240" height="92" rx="10" class="cpu box"/>
+  <text x="80" y="134" class="t h" fill="#67e8f9">PicoRV32</text>
+  <text x="80" y="156" class="t s">RV32I · pinned ef203c2</text>
+  <text x="80" y="176" class="t s">bare-metal assembly firmware</text>
+
+  <rect x="60" y="236" width="110" height="70" rx="9" class="mem box"/>
+  <text x="74" y="262" class="t h" fill="#5eead4" font-size="13">IMEM</text>
+  <text x="74" y="280" class="t s">16 KiB BRAM</text>
+  <text x="74" y="296" class="t a">0x0000_0000</text>
+  <rect x="190" y="236" width="110" height="70" rx="9" class="mem box"/>
+  <text x="204" y="262" class="t h" fill="#5eead4" font-size="13">DMEM</text>
+  <text x="204" y="280" class="t s">16 KiB BRAM</text>
+  <text x="204" y="296" class="t a">0x0001_0000</text>
+
+  <!-- bridge + system page -->
+  <rect x="340" y="104" width="200" height="92" rx="10" class="cpu box"/>
+  <text x="360" y="134" class="t h" fill="#67e8f9">CPU BRIDGE</text>
+  <text x="360" y="156" class="t s">local decode</text>
+  <text x="360" y="176" class="t s">sticky bus fault</text>
+
+  <rect x="340" y="236" width="200" height="84" rx="10" class="io box" stroke="#4ade80"/>
+  <text x="358" y="262" class="t h" fill="#86efac" font-size="13">SYSTEM PAGE</text>
+  <text x="358" y="282" class="t s">UART TX 115200 8N1</text>
+  <text x="358" y="300" class="t s">SYS_INFO: LANES, MHz</text>
+  <text x="358" y="315" class="t a">0x1000_6000</text>
+
+  <!-- accelerator bus + RAMs -->
+  <rect x="580" y="104" width="220" height="92" rx="10" class="bus box"/>
+  <text x="600" y="134" class="t h" fill="#c4b5fd">ACCEL BUS</text>
+  <text x="600" y="156" class="t s">valid/ready · 1 master</text>
+  <text x="600" y="176" class="t s">ownership interlock</text>
+
+  <rect x="580" y="236" width="220" height="46" rx="9" class="mem box"/>
+  <text x="596" y="256" class="t h" fill="#5eead4" font-size="12.5">COEFF RAM</text>
+  <text x="596" y="273" class="t a">0x0002_0000 · 1024×32</text>
+  <rect x="580" y="288" width="220" height="46" rx="9" class="mem box"/>
+  <text x="596" y="308" class="t h" fill="#5eead4" font-size="12.5">SAMPLE RAM</text>
+  <text x="596" y="325" class="t a">0x0002_1000 · 1024×32</text>
+  <rect x="580" y="340" width="220" height="46" rx="9" class="mem box"/>
+  <text x="596" y="360" class="t h" fill="#5eead4" font-size="12.5">RESULT RAM</text>
+  <text x="596" y="377" class="t a">0x0002_2000 · host read-only</text>
+  <text x="580" y="410" class="t s">owned reads → 0xBAD0_0001</text>
+  <text x="580" y="428" class="t s">result writes → forbidden</text>
+
+  <!-- accelerator -->
+  <rect x="840" y="104" width="300" height="92" rx="10" class="acc box"/>
+  <text x="860" y="134" class="t h" fill="#f9a8d4">fir_seq_accel</text>
+  <text x="860" y="156" class="t s">CSRs · block ctrl 1..1024 · history</text>
+  <text x="860" y="176" class="t a">0x1000_5000</text>
+
+  <rect x="840" y="236" width="300" height="50" rx="10" class="acc box"/>
+  <text x="860" y="266" class="t h" fill="#f9a8d4" font-size="13">ARCH SELECTOR</text>
+  <text x="1010" y="266" class="t a">CTRL[3:2]</text>
+
+  <g>
+    <rect x="840" y="306" width="92" height="98" rx="9" class="acc box"/>
+    <text x="886" y="340" text-anchor="middle" class="t h" fill="#fda4af">SEQ</text>
+    <text x="886" y="362" text-anchor="middle" class="t s">1 MAC</text>
+    <text x="886" y="378" text-anchor="middle" class="t s">per cycle</text>
+    <rect x="944" y="306" width="92" height="98" rx="9" class="acc box"/>
+    <text x="990" y="340" text-anchor="middle" class="t h" fill="#fda4af">PAR</text>
+    <text x="990" y="362" text-anchor="middle" class="t s">LANES ×</text>
+    <text x="990" y="378" text-anchor="middle" class="t s">tree, 1 cyc</text>
+    <rect x="1048" y="306" width="92" height="98" rx="9" class="acc box"/>
+    <text x="1094" y="340" text-anchor="middle" class="t h" fill="#fda4af">PIPE</text>
+    <text x="1094" y="362" text-anchor="middle" class="t s">elastic</text>
+    <text x="1094" y="378" text-anchor="middle" class="t s">reg. tree</text>
+  </g>
+
+  <rect x="840" y="424" width="300" height="34" rx="9" class="bus box"/>
+  <text x="990" y="446" text-anchor="middle" class="t a" fill="#ddd6fe">Q16.16 · 72-bit acc · >>>16 · int32 sat</text>
+
+  <!-- board I/O strip -->
+  <text x="36" y="500" class="t h" fill="#e2e8f0" font-size="13">BASYS 3 I/O</text>
+  <rect x="60" y="512" width="150" height="56" rx="9" class="io box"/>
+  <text x="76" y="536" class="t h" fill="#cbd5e1" font-size="12.5">CLK 100 MHz</text>
+  <text x="76" y="555" class="t a">pin W5</text>
+  <rect x="226" y="512" width="132" height="56" rx="9" class="io box"/>
+  <text x="242" y="536" class="t h" fill="#cbd5e1" font-size="12.5">MMCM</text>
+  <text x="242" y="555" class="t s">opt. 50 / 25</text>
+  <path d="M 210 540 H 226" class="wire"/>
+  <rect x="374" y="512" width="200" height="56" rx="9" class="io box" stroke="#4ade80"/>
+  <text x="390" y="536" class="t h" fill="#86efac" font-size="12.5">UART TX → PC</text>
+  <text x="390" y="555" class="t a">pin A18 · terminal</text>
+  <rect x="590" y="512" width="170" height="56" rx="9" class="io box"/>
+  <text x="606" y="536" class="t h" fill="#cbd5e1" font-size="12.5">BTN RESET</text>
+  <text x="606" y="555" class="t a">U18 · 2-flop sync</text>
+  <rect x="776" y="512" width="364" height="56" rx="9" class="io box"/>
+  <g class="t" font-size="11.5">
+    <circle cx="800" cy="540" r="7" fill="#22d3ee" filter="url(#soft)"/><text x="814" y="544" fill="#cbd5e1">LD0 boot</text>
+    <circle cx="890" cy="540" r="7" fill="#fbbf24" filter="url(#soft)"><animate attributeName="opacity" values="0.25;1;0.25" dur="1.2s" repeatCount="indefinite"/></circle><text x="904" y="544" fill="#cbd5e1">LD1 busy</text>
+    <circle cx="980" cy="540" r="7" fill="#4ade80" filter="url(#soft)"/><text x="994" y="544" fill="#cbd5e1">LD2 pass</text>
+    <circle cx="1068" cy="540" r="7" fill="#1f2937" stroke="#ef4444" stroke-width="1.5"/><text x="1082" y="544" fill="#cbd5e1">LD3 fault</text>
+  </g>
+  <text x="600" y="606" text-anchor="middle" class="t s">Packets show bus traffic. Engines share one serialized shell: one request in flight, so system cycles are not standalone engine throughput.</text>
+
+  <!-- moving packets -->
+  <g filter="url(#soft)">
+    <circle r="4" fill="#e0fbff"><animateMotion dur="1.4s" repeatCount="indefinite"><mpath href="#p-cpu-bridge"/></animateMotion></circle>
+    <circle r="4" fill="#ede9fe"><animateMotion dur="1.4s" begin="0.35s" repeatCount="indefinite"><mpath href="#p-bridge-bus"/></animateMotion></circle>
+    <circle r="4" fill="#fbcfe8"><animateMotion dur="1.4s" begin="0.7s" repeatCount="indefinite"><mpath href="#p-bus-csr"/></animateMotion></circle>
+    <circle r="4" fill="#ccfbf1"><animateMotion dur="1.8s" begin="0.2s" repeatCount="indefinite"><mpath href="#p-bus-ram"/></animateMotion></circle>
+    <circle r="4" fill="#ccfbf1"><animateMotion dur="2.2s" begin="0.9s" repeatCount="indefinite"><mpath href="#p-ram-shell"/></animateMotion></circle>
+    <circle r="4" fill="#fbcfe8"><animateMotion dur="1.6s" begin="1.0s" repeatCount="indefinite"><mpath href="#p-csr-sel"/></animateMotion></circle>
+    <circle r="4" fill="#fbcfe8"><animateMotion dur="1.0s" begin="1.3s" repeatCount="indefinite"><mpath href="#p-sel-par"/></animateMotion></circle>
+    <circle r="4" fill="#ede9fe"><animateMotion dur="2.0s" begin="0.5s" repeatCount="indefinite"><mpath href="#p-post-result"/></animateMotion></circle>
+    <circle r="4" fill="#bbf7d0"><animateMotion dur="2.4s" begin="0.4s" repeatCount="indefinite"><mpath href="#p-bridge-sys"/></animateMotion></circle>
+    <circle r="4" fill="#bbf7d0"><animateMotion dur="2.6s" begin="1.2s" repeatCount="indefinite"><mpath href="#p-sys-uart"/></animateMotion></circle>
+  </g>
+</svg>
