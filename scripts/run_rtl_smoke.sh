@@ -153,8 +153,9 @@ if [[ -f vendor/picorv32/picorv32.v && -f firmware/nexus32_smoke.hex ]]; then
     tests/rtl/tb_nexus32_invalid_fetch.sv
   vvp results/rtl/tb_nexus32_invalid_fetch.vvp
 else
-  echo "SKIP: PicoRV32 SoC test requires vendor/picorv32/picorv32.v and firmware/nexus32_smoke.hex."
-  echo "      Run scripts/vendor_picorv32.sh and scripts/build_smoke_firmware.sh first."
+  echo "ERROR: PicoRV32 SoC tests require vendor/picorv32/picorv32.v and firmware/nexus32_smoke.hex." >&2
+  echo "       Run 'make setup' (scripts/vendor_picorv32.sh and scripts/build_smoke_firmware.sh) first." >&2
+  exit 1
 fi
 
 # Backpressure/stability check: queue a second request while the first RAM read
@@ -191,5 +192,6 @@ if [[ -f vendor/picorv32/picorv32.v && -f firmware/nexus32_smoke.hex ]]; then
     tests/rtl/tb_nexus32_soc_reset_recovery.sv
   vvp results/rtl/tb_nexus32_soc_reset_recovery.vvp
 else
-  echo "SKIP: reset recovery test requires PicoRV32 source and normal smoke firmware image."
+  echo "ERROR: reset recovery test requires PicoRV32 source and normal smoke firmware image ('make setup')." >&2
+  exit 1
 fi

@@ -17,9 +17,22 @@ make test-all
 ```
 
 Gated smoke checks are available via `bash scripts/run_rtl_smoke.sh`
-(see the canonical regression above). The following Wave B runners are
-manual only — the grouping below overrides any reading that implied they
-were members of `make test`, `make test-all`, or CI:
+(see the canonical regression above).
+
+> **Gate-membership update — 2026-11-10.** Three of the four Wave B runners
+> are now gated by both `make test-all` and CI, through the Makefile targets
+> `golden` (`run_golden_regression.py`), `soc-block-1024`
+> (`run_soc_block_1024.sh all` plus the negative modes `neg-n1`, `neg-n2`,
+> `neg-n3`, `neg-n4a`, `neg-n4b`) and `subword` (`run_subword_smoke.sh`).
+> `run_protected_access_smoke.sh all` is still manual only.
+> `scripts/run_rtl_smoke.sh` now exits non-zero instead of printing SKIP
+> when the pinned PicoRV32 source or the smoke firmware is absent.
+> Verilator lint is gated by `scripts/lint_baseline.txt`: a project-RTL
+> warning outside that reviewed list fails `make verilator` and CI.
+> The 2026-10-25 note below is kept as history; where it disagrees with
+> this update, this update is current.
+
+The 2026-10-25 note:
 
 > **Gate-membership note — 2026-10-25 (autonomous lab, working copy HEAD
 > `db7cd79`).** No step of `make test`, `make test-all`, or
@@ -65,10 +78,8 @@ were members of `make test`, `make test-all`, or CI:
 > `tb_nexus32_soc_block_1024` path, which remains non-gating.
 
 ```bash
-python3 scripts/run_golden_regression.py
-bash scripts/run_subword_smoke.sh
-bash scripts/run_soc_block_1024.sh all
-bash scripts/run_protected_access_smoke.sh all
+make golden soc-block-1024 subword               # gated since 2026-11-10
+bash scripts/run_protected_access_smoke.sh all   # still manual
 ```
 
 The protected-access command currently reports a **representative LANES=32**

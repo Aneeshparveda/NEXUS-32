@@ -8,16 +8,16 @@ the runs listed below are point-in-time checks.
 
 ## Current HEAD
 
-- Last reviewed against main at `c74f5e1` ("Merge pull request #7 from
-  Aneeshparveda/readme-revamp", verified from the repository history in
-  this checkout).
-- Branch `feature/vivado-windows-handoff` (2026-11-10) adds the Windows
-  Vivado flow, the UART board demo and the evidence tools. It was verified
-  locally with `make test-all` (Icarus 13.0, Verilator 5.052) and the four
-  manual runners; hosted CI on that branch is not yet verified.
+- Last reviewed against main at `b24474b` ("Merge pull request #9 from
+  Aneeshparveda/feature/vivado-windows-handoff", verified from the
+  repository history in this checkout). That merge adds the Windows Vivado
+  flow, the UART board demo and the evidence tools.
 
 ## CI status
 
+- CI run #17 on `b24474b`: completed, conclusion **success**
+  (verified 2026-11-10 from the GitHub Actions API):
+  https://github.com/Aneeshparveda/NEXUS-32/actions/runs/42710687047
 - CI run #12 on `c74f5e1`: completed, conclusion **success**
   (verified 2026-10-26 from the GitHub Actions API):
   https://github.com/Aneeshparveda/NEXUS-32/actions/runs/40233635198
@@ -81,7 +81,23 @@ the runs listed below are point-in-time checks.
   debug monitor. The system page provides UART transmit and SYS_INFO only.
   (`rtl/fir_seq_accel.sv`, `rtl/nexus32_soc.sv`)
 - PicoRV32 native memory has no dedicated error response input; the
-  wrapper exposes sticky bus-fault status and returns zero on an
-  errored MMIO response.
-  (`rtl/nexus32_accel_bus.sv`; `rtl/nexus32_soc.sv`; assumed: the pinned
-  `picorv32.v` was not checked)
+  wrapper exposes sticky bus-fault status and passes the accelerator's
+  diagnostic response data (for example the protected-memory sentinel
+  `0xBAD0_0001`) through to the CPU on an errored MMIO response.
+  (`rtl/nexus32_accel_bus.sv`; `rtl/nexus32_soc.sv`; `make test-fault`;
+  assumed: the pinned `picorv32.v` was not checked)
+- `LANES` also caps the filter length: `TAP_COUNT` must be 1..`LANES`, so a
+  LANES=4 build runs at most a 4-tap filter. A larger `TAP_COUNT` is
+  rejected at START as an invalid configuration.
+  (`rtl/fir_seq_accel.sv` `config_valid`; `rtl/fir_arch_selector.sv`
+  `invalid_request`)
+- The block controller waits for each BRAM read response with no timeout
+  (`EXEC_COEFF_WAIT`, `EXEC_SAMPLE_WAIT` in `rtl/fir_seq_accel.sv`). This
+  relies on `rtl/fir_tap_bram.sv` answering every accepted read one cycle
+  later. A lost response would leave `BUSY` set until `CTRL.RESET`; no test
+  injects one, and the shipped BRAM cannot produce one.
+- The parallel engine reports an invalid tap count as an `error_o` pulse
+  with no `out_valid_o`, as its header and `docs/PARALLEL_ENGINE.md`
+  state. Through `rtl/fir_arch_selector.sv` this is unreachable, because
+  the selector answers invalid requests itself; a standalone user must
+  watch `error_o`.
