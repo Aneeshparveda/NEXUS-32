@@ -24,7 +24,7 @@ VERILATOR_LOG := results/verification-closure/verilator-lint.log
 
 .PHONY: setup test test-fault test-all check-tool-selection check-vendor check-prerequisites \
 	python-tests toolchain rtl differential status-property soc soc-demo soc-latency basys3 vivado-flow-stub evidence-tools provenance-test verilator \
-	verification-closure
+	verification-closure golden soc-block-1024 subword
 
 # The full regression is intentionally offline: it never runs make setup.
 # Run that target once on a connected machine to provision the pinned source
@@ -49,7 +49,22 @@ test-fault: check-vendor
 		tests/rtl/tb_nexus32_soc_fault_data.sv
 	@vvp results/rtl/tb_nexus32_soc_fault_data.vvp
 
-test-all: test test-fault
+test-all: test test-fault golden soc-block-1024 subword
+
+# Python golden model against all three engines; needs no CPU or firmware.
+golden:
+	@python3 scripts/run_golden_regression.py
+
+# CPU-driven 1024-sample block at LANES 4/8/16/32, then the negative modes,
+# which pass only if the bench rejects corrupted or missing expected data.
+soc-block-1024: check-prerequisites
+	@bash scripts/run_soc_block_1024.sh all
+	@for mode in neg-n1 neg-n2 neg-n3 neg-n4a neg-n4b; do \
+		bash scripts/run_soc_block_1024.sh $$mode; \
+	done
+
+subword: check-prerequisites
+	@bash scripts/run_subword_smoke.sh
 
 check-tool-selection:
 	@if [[ -z "$(RISCV_CC)" || -z "$(RISCV_OBJCOPY)" ]]; then \
@@ -138,6 +153,7 @@ provenance-test:
 
 verilator:
 	@mkdir -p results/verification-closure
+	@python3 scripts/check_lint_baseline.py --self-test
 	@verilator --lint-only --Wall --Wno-fatal --top-module top_basys3 \
 		vendor/picorv32/picorv32.v \
 		rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
@@ -145,6 +161,7 @@ verilator:
 		rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
 		rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv rtl/top_basys3.sv \
 		2>&1 | tee "$(VERILATOR_LOG)"
+	@python3 scripts/check_lint_baseline.py "$(VERILATOR_LOG)"
 
 verification-closure:
 	@bash scripts/run_verification_closure.sh

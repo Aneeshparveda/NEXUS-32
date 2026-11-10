@@ -125,7 +125,7 @@ Full sweep: demo firmware through PicoRV32, `TAP_COUNT = LANES`, 1024 samples,
 | Block controller | **VERIFIED** | Verification closure **15 PASS / 0 FAIL**: 1024-sample scoreboards, partial faults, reset races ([receipt](docs/VERIFICATION_CLOSURE.md)) |
 | SoC through the CPU | **VERIFIED** | Smoke, multi-arch, fault paths, sub-word, protected access, 1024-sample block, START→verdict latency 129 cycles |
 | Board demo + UART | **VERIFIED in simulation** | `tb_nexus32_soc_demo` decodes the UART independently at LANES 4/8/16/32 |
-| Continuous integration | **VERIFIED** | GitHub Actions, 22 named steps, every push to `main` and every PR |
+| Continuous integration | **VERIFIED** | GitHub Actions, 25 named steps, every push to `main` and every PR |
 | Vivado synthesis, timing, utilization | **PENDING** | One-click flow ready: [docs/VIVADO_DAY.md](docs/VIVADO_DAY.md) |
 | Silicon (Basys 3 LEDs + UART log) | **PENDING** | `PROGRAM_BOARD.bat` → `READ_UART.bat` → `EVIDENCE.md` |
 
@@ -247,7 +247,7 @@ in IMEM. LANES 16/32 are expected to exceed the 90 DSP48E1 slices with all three
 
 ```bash
 make test                                  # offline gate: everything below that has no network need
-make test-all                              # + CPU bridge fault-data regression
+make test-all                              # + fault-data, golden, soc-block-1024, subword (below)
 python3 -m unittest discover -s tests -v
 bash scripts/run_rtl_smoke.sh
 bash scripts/run_differential_smoke.sh all
@@ -256,10 +256,11 @@ bash scripts/run_soc_demo.sh all           # UART unit test + board demo, LANES 
 bash scripts/run_verification_closure.sh   # 15 required tests
 bash scripts/test_basys3_flow_stub.sh      # Vivado flow logic, no Vivado
 bash scripts/test_evidence_tools.sh        # Windows evidence tools, offline
-# manual runners (run after touching their paths)
-python3 scripts/run_golden_regression.py
-bash scripts/run_subword_smoke.sh
-bash scripts/run_soc_block_1024.sh all
+make verilator                             # lint, gated by scripts/lint_baseline.txt
+make golden                                # Python model vs all three engines, 1034 vectors
+make soc-block-1024                        # CPU-driven 1024-sample block + 5 negative modes
+make subword                               # CPU-driven SB/SH/LB/LH/LBU/LHU
+# manual runner (run after touching its path)
 bash scripts/run_protected_access_smoke.sh all
 ```
 

@@ -1,0 +1,22 @@
+# Reviewed Verilator --Wall warnings in project RTL: rule, file, max count.
+# Enforced by scripts/check_lint_baseline.py (make verilator, CI).
+# A warning with a rule/file pair not listed here, or above its count, fails.
+# vendor/ (pinned PicoRV32) is third-party and is not gated.
+# Counts are identical under Verilator 5.020 (CI, Ubuntu 24.04) and 5.052,
+# except UNOPTFLAT, which 5.020 reports and 5.052 does not.
+
+# Legacy paired-tap outputs of fir_tap_bram left open: tap_valid_o,
+# sample_tap_o, coefficient_tap_o.
+PINCONNECTEMPTY rtl/fir_seq_accel.sv 3
+# mem_write_rejected_o is not surfaced at integration.
+PINCONNECTEMPTY rtl/nexus32_accel_bus.sv 1
+# Unused PicoRV32 ports: mem_la_*, pcpi_*, eoi, trace_*.
+PINCONNECTEMPTY rtl/nexus32_soc.sv 12
+# Unused MMCME2_BASE outputs in the 50/25 MHz clock branch.
+PINCONNECTEMPTY rtl/top_basys3.sv 11
+# Unused bits of candidate_info and current_info; bram_cfg_valid unused.
+UNUSEDSIGNAL rtl/fir_seq_accel.sv 3
+# stage_ready ready chain. Each bit depends only on registered valid_q and
+# the next higher bit, so the chain is acyclic; reported at whole-vector
+# granularity by some Verilator versions only.
+UNOPTFLAT rtl/fir_pipelined_engine.sv 1

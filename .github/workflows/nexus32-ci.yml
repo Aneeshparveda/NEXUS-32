@@ -112,23 +112,23 @@ jobs:
       - name: Run characterization provenance test
         run: make provenance-test
 
-      - name: Run Verilator lint with documented warning baseline
-        run: |
-          set -euo pipefail
-          mkdir -p results/verification-closure
-          verilator --lint-only --Wall --Wno-fatal --top-module top_basys3 \
-            vendor/picorv32/picorv32.v \
-            rtl/fir_q16_mac.sv rtl/fir_q16_postprocess.sv rtl/fir_seq_engine.sv \
-            rtl/fir_parallel_engine.sv rtl/fir_pipelined_engine.sv rtl/fir_arch_selector.sv \
-            rtl/fir_tap_bram.sv rtl/fir_seq_accel.sv rtl/nexus32_accel_bus.sv \
-            rtl/nexus32_uart_tx.sv rtl/nexus32_soc.sv rtl/top_basys3.sv \
-            2>&1 | tee results/verification-closure/verilator-lint.log
+      - name: Run Verilator lint against the reviewed warning baseline
+        run: make verilator
 
       - name: Run complete verification closure gate
         run: bash scripts/run_verification_closure.sh
 
       - name: Run CPU bridge fault-data regression
         run: make test-fault
+
+      - name: Run Python golden-model regression against all three engines
+        run: make golden
+
+      - name: Run CPU-driven 1024-sample block regression and its negative modes
+        run: make soc-block-1024
+
+      - name: Run CPU-driven subword access regression
+        run: make subword
 
       - name: Build the Windows Vivado handoff bundle (verified, not uploaded)
         run: |
