@@ -19,8 +19,8 @@ if not defined VIVADO_CMD (
 set "OUT_DIR=%ROOT_DIR%\results\vivado_core"
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 echo Using: %VIVADO_CMD%
+rem vivado -version exits nonzero on 2025.2 and 2026.1, so only the real run is checked.
 call "%VIVADO_CMD%" -version
-if errorlevel 1 goto :failed
 
 echo Running NEXUS-32 FIR Core Characterization Sweep...
 call "%VIVADO_CMD%" -mode batch -log "%OUT_DIR%\vivado.log" -journal "%OUT_DIR%\vivado.jou" -source "%SCRIPT_DIR%run_core_characterization.tcl" -tclargs "%OUT_DIR%"

@@ -114,7 +114,13 @@ proc stub_utilization {arglist} {
 
 proc report_utilization {args} { stub_utilization $args }
 proc report_timing_summary {args} { stub_timing_summary $args }
-proc report_timing {args} { stub_report $args }
+proc report_timing {args} {
+    # Real Vivado rejects this option (Common 17-170); it broke the 2026-11-11 run.
+    if {"-unconstrained" in $args} { error "Unknown option '-unconstrained'" }
+    stub_report $args
+}
+proc check_timing {args} { stub_report $args }
+proc report_power {args} { stub_report $args }
 proc report_clocks {args} { stub_report $args }
 proc report_drc {args} { stub_report $args }
 

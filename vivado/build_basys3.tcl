@@ -761,11 +761,13 @@ run_artifact_stage "post_synth.report_clocks" $post_synth_clocks \
 }
 
 run_artifact_stage "post_synth.report_unconstrained_paths" $post_synth_unconstrained \
-    "report_timing -unconstrained -max_paths 100 -file $post_synth_unconstrained" {
-    if {[info commands report_timing] eq ""} {
-        error "Vivado command unavailable: report_timing"
+    "check_timing -verbose -file $post_synth_unconstrained" {
+    if {[info commands check_timing] eq ""} {
+        error "Vivado command unavailable: check_timing"
     }
-    report_timing -unconstrained -max_paths 100 -file $path
+    # report_timing has no -unconstrained option (Common 17-170 in Vivado 2026.1);
+    # check_timing lists unclocked and unconstrained endpoints.
+    check_timing -verbose -file $path
     ensure_artifact $path
 }
 
@@ -855,11 +857,12 @@ run_artifact_stage "post_impl.report_clocks" $post_impl_clocks \
 }
 
 run_artifact_stage "post_impl.report_unconstrained_paths" $post_impl_unconstrained \
-    "report_timing -unconstrained -max_paths 100 -file $post_impl_unconstrained" {
-    if {[info commands report_timing] eq ""} {
-        error "Vivado command unavailable: report_timing"
+    "check_timing -verbose -file $post_impl_unconstrained" {
+    if {[info commands check_timing] eq ""} {
+        error "Vivado command unavailable: check_timing"
     }
-    report_timing -unconstrained -max_paths 100 -file $path
+    # See post_synth.report_unconstrained_paths.
+    check_timing -verbose -file $path
     ensure_artifact $path
 }
 
@@ -870,6 +873,22 @@ run_artifact_stage "post_impl.report_drc" $post_impl_drc \
     }
     report_drc -file $path
     ensure_artifact $path
+}
+
+# Best effort: a vectorless power estimate (total/dynamic/static power,
+# junction temperature, supply currents). A failure here must not block the
+# bitstream, so it is recorded as SKIPPED instead of failing the flow.
+set post_impl_power [file join $post_impl_report_dir power.rpt]
+set power_command "report_power -file $post_impl_power"
+if {$flow_failed} {
+    record_stage "post_impl.report_power" "SKIPPED" $post_impl_power $power_command \
+        "A previous mandatory stage failed"
+} elseif {[catch {report_power -file $post_impl_power} power_message]} {
+    puts "NOTE: post_impl.report_power -- $power_message"
+    record_stage "post_impl.report_power" "SKIPPED" $post_impl_power $power_command $power_message
+} else {
+    record_stage "post_impl.report_power" "PASS" $post_impl_power $power_command \
+        "Vectorless estimate, not a measurement"
 }
 
 run_artifact_stage "post_impl.write_checkpoint" $post_impl_checkpoint \

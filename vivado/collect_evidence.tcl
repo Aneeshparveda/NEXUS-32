@@ -119,7 +119,7 @@ foreach build_dir $build_dirs {
     }
     foreach stage {post_synth post_implementation} {
         foreach report {utilization.rpt utilization_hierarchical.rpt timing_summary.rpt
-                        timing_paths.rpt clocks.rpt drc.rpt unconstrained_paths.rpt} {
+                        timing_paths.rpt clocks.rpt drc.rpt unconstrained_paths.rpt power.rpt} {
             copy_if_exists [file join $build_dir reports $stage $report] \
                 [file join $destination reports $stage]
         }
