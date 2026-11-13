@@ -37,3 +37,7 @@ firmware/nexus32_invalid_fetch.hex
 
 # Downloaded pinned PicoRV32 checkout
 /vendor/picorv32/
+# software FIR baseline build/sim outputs
+experiments/sw_baseline/*.elf
+experiments/sw_baseline/*.hex
+experiments/sw_baseline/*.vvp
