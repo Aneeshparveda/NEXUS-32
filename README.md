@@ -14,7 +14,7 @@
 
 <p align="center">
   <b>Three ways to compute the same FIR filter. One numerical contract. No hand-waving.</b><br>
-  <sub>Every number on this page is simulation evidence, or it is labelled pending. Live status: <a href="docs/STATUS.md">docs/STATUS.md</a></sub>
+  <sub>Every number on this page is simulation evidence, Vivado output or a board measurement, and is labelled as such. Live status: <a href="docs/STATUS.md">docs/STATUS.md</a></sub>
 </p>
 
 <p align="center">
@@ -48,9 +48,10 @@ NEXUS32 RESULT: PASS
 ```
 
 On a Basys 3 the same firmware prints this to a PC terminal and lights
-**LD0** (booted) and **LD2** (all engines pass). That board run is the next
-milestone. Today the transcript above comes from simulation, decoded bit by
-bit from the simulated UART pin.
+**LD0** (booted) and **LD2** (all engines pass). On 2026-11-13 a real Basys 3
+(LANES=8, 50 MHz) printed exactly these cycle counts and `NEXUS32 RESULT: PASS`
+([board evidence](results/board_2026-11-13/MANIFEST.md)). The transcript above
+comes from simulation, decoded bit by bit from the simulated UART pin.
 
 ## ▸ Why this exists
 
@@ -114,7 +115,7 @@ Full sweep: demo firmware through PicoRV32, `TAP_COUNT = LANES`, 1024 samples,
 > **system** cycle counts, not standalone engine throughput, MHz, LUTs or power. That is why the pipelined
 > engine trails the parallel one here, even though it sustains one result per cycle on its own (measured in
 > `tests/rtl/tb_fir_pipelined_latency.sv`). Lifting the serialization is on the roadmap. FPGA area and
-> timing come from Vivado, which has not run yet.
+> timing come from Vivado: see the evidence ledger below.
 
 ## ▸ Evidence ledger
 
@@ -126,8 +127,9 @@ Full sweep: demo firmware through PicoRV32, `TAP_COUNT = LANES`, 1024 samples,
 | SoC through the CPU | **VERIFIED** | Smoke, multi-arch, fault paths, sub-word, protected access, 1024-sample block, START→verdict latency 129 cycles |
 | Board demo + UART | **VERIFIED in simulation** | `tb_nexus32_soc_demo` decodes the UART independently at LANES 4/8/16/32 |
 | Continuous integration | **VERIFIED** | GitHub Actions, 25 named steps, every push to `main` and every PR |
-| Vivado synthesis, timing, utilization | **PENDING** | One-click flow ready: [docs/VIVADO_DAY.md](docs/VIVADO_DAY.md) |
-| Silicon (Basys 3 LEDs + UART log) | **PENDING** | `PROGRAM_BOARD.bat` → `READ_UART.bat` → `EVIDENCE.md` |
+| Vivado synthesis, timing, utilization | **MEASURED** | LANES=8 @ 50 MHz: timing met (WNS +0.468 ns, WHS +0.014 ns), 4695 LUT, 68/90 DSP, 13 BRAM; 100 MHz misses timing ([manifest](results/board_2026-11-13/MANIFEST.md)) |
+| Silicon (Basys 3 LEDs + UART log) | **VERIFIED on board** | LD0/LD2 on, LD3 off; UART `NEXUS32 RESULT: PASS`, 82/82 reports, cycles identical to simulation; die 33.3 °C ([log](results/board_2026-11-13/uart_log.txt)) |
+| Accelerator vs CPU alone | **MEASURED in simulation** | Plain C on the PicoRV32 (no multiplier): 13.3 M cycles at 8 taps; the engines are 926×–2 587× faster ([baseline](experiments/sw_baseline/README.md)) |
 
 ## ▸ Run it
 
@@ -237,8 +239,8 @@ vivado -mode batch -source vivado/build_basys3.tcl -tclargs results/vivado/basys
 
 Each build writes `build_summary.md`, `metrics.txt` (WNS/TNS/WHS/THS, LUT/FF/DSP/BRAM, `TIMING_MET`,
 IMEM check), reports and the bitstream. A post-synthesis guard fails the flow if the firmware did not land
-in IMEM. LANES 16/32 are expected to exceed the 90 DSP48E1 slices with all three engines built
-(pre-Vivado estimate). See [vivado/README.md](vivado/README.md).
+in IMEM. LANES 16/32 exceed the 90 DSP48E1 slices with all three engines built (confirmed by the
+out-of-context core sweep). See [vivado/README.md](vivado/README.md).
 
 </details>
 
@@ -289,9 +291,9 @@ a bitstream, board programming or physical validation.
 - [x] Serialized block controller (1..1024 samples), CSR shell, memory-ownership interlock
 - [x] Differential + SoC benches, verification closure 15/15, CI
 - [x] Basys 3 integration, self-reporting UART demo, one-click Windows Vivado evidence flow
-- [ ] **First Vivado run:** utilization, timing, bitstream for LANES 4 and 8
-- [ ] **First silicon:** board LEDs, UART log, dated photo
-- [ ] Data-driven upgrades: pipelined multiplies where timing demands, a streaming shell so the race shows true engine throughput
+- [x] **First Vivado run:** utilization, timing, bitstream for LANES 4 and 8 (50 MHz met; 100 MHz misses)
+- [x] **First silicon:** Basys 3, LEDs, UART `NEXUS32 RESULT: PASS`, dated photos (2026-11-13)
+- [ ] Data-driven upgrades: pipeline the sequential engine's multiply-accumulate (the 50 MHz critical path) for 100 MHz, a streaming shell so the race shows true engine throughput
 - [ ] v1.0.0 release with real Vivado numbers and per-architecture bitstreams
 - [ ] Beyond: UART command channel, C firmware, formal properties, power analysis
 
