@@ -734,11 +734,11 @@ run_artifact_stage "post_synth.report_utilization_hierarchical" $post_synth_util
 }
 
 run_artifact_stage "post_synth.report_timing_summary" $post_synth_timing_summary \
-    "report_timing_summary -delay_type max -file $post_synth_timing_summary" {
+    "report_timing_summary -delay_type min_max -file $post_synth_timing_summary" {
     if {[info commands report_timing_summary] eq ""} {
         error "Vivado command unavailable: report_timing_summary"
     }
-    report_timing_summary -delay_type max -file $path
+    report_timing_summary -delay_type min_max -file $path
     ensure_artifact $path
 }
 
@@ -830,11 +830,11 @@ run_artifact_stage "post_impl.report_utilization_hierarchical" $post_impl_utiliz
 }
 
 run_artifact_stage "post_impl.report_timing_summary" $post_impl_timing_summary \
-    "report_timing_summary -delay_type max -file $post_impl_timing_summary" {
+    "report_timing_summary -delay_type min_max -file $post_impl_timing_summary" {
     if {[info commands report_timing_summary] eq ""} {
         error "Vivado command unavailable: report_timing_summary"
     }
-    report_timing_summary -delay_type max -file $path
+    report_timing_summary -delay_type min_max -file $path
     ensure_artifact $path
 }
 

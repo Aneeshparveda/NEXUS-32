@@ -83,6 +83,8 @@ proc stub_report {arglist} {
 # Report bodies shaped like Vivado's, so the flow's metric parsers run.
 # STUB_WNS / STUB_WHS choose the slack values (defaults meet timing).
 proc stub_timing_summary {arglist} {
+    # Hold columns (WHS/THS) exist only with -delay_type min_max; "max" made the parser read WPWS as WHS.
+    if {[lsearch -exact $arglist max] >= 0} { error "report_timing_summary needs -delay_type min_max" }
     set wns "0.512"
     set whs "0.045"
     if {[info exists ::env(STUB_WNS)]} { set wns $::env(STUB_WNS) }

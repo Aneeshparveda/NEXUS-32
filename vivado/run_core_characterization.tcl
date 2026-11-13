@@ -187,7 +187,8 @@ proc parse_utilization {rpt_file} {
     }
     set fp [open $rpt_file r]
     while {[gets $fp line] >= 0} {
-        if {[regexp -nocase {\|\s*Slice LUTs\s*\|\s*(\d+)} $line -> match]} {
+        # Out-of-context reports print "Slice LUTs*" (footnote marker).
+        if {[regexp -nocase {\|\s*Slice LUTs\*?\s*\|\s*(\d+)} $line -> match]} {
             set luts $match
         } elseif {[regexp -nocase {\|\s*Slice Registers\s*\|\s*(\d+)} $line -> match]} {
             set ffs $match
