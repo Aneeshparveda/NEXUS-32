@@ -1,6 +1,36 @@
 # NEXUS-32 Status
 
-**Last updated: 2026-11-10.**
+**Last updated: 2026-11-13.**
+
+## Board evidence (2026-11-13)
+
+The full SoC ran on a Digilent Basys 3. The record is in
+[`results/board_2026-11-13/MANIFEST.md`](../results/board_2026-11-13/MANIFEST.md).
+
+- **Build:** LANES=8, 50 MHz (MMCM), Vivado 2024.2, part `xc7a35tcpg236-1`,
+  from commit `e17d20b` (RTL identical to `2f87f96`). Bitstream SHA-256
+  `47778f086f2dbdc5f28398d9971b84cd960760fddf56c5cefc4eb3de6ce6f43d`.
+- **Routed timing met at 50 MHz:** WNS +0.468 ns, WHS +0.014 ns, 0 failing
+  endpoints.
+- **Critical path:** in the sequential engine, `tap_count_q_reg` to
+  `result_o_reg`, 19.453 ns over 30 logic levels.
+- **Implemented utilization:** 4695 LUT, 3614 FF, 68/90 DSP48E1
+  (PAR 32, PIPE 32, SEQ 4), 13/50 BRAM tiles. DRC 0 errors; Methodology
+  0 critical.
+- **On the board:**
+  - LD0 and LD2 on, LD3 off.
+  - The UART printed `NEXUS32 RESULT: PASS` with SEQ / PAR / PIPE
+    `cycles_total` 14352 / 5136 / 9232, identical to simulation.
+  - 82 reports, all PASS, 0 FAIL. 61 are complete; the other 21 were
+    truncated by the terminal window.
+- **Die temperature:** 33.3 °C, measured with System Monitor (XADC).
+- **Power:** 0.194 W, a vectorless Vivado estimate dominated by the MMCM
+  (87% of dynamic power).
+- **Software baseline (RTL simulation):** the same FIR in plain C on the
+  PicoRV32 alone (no multiplier) takes 13,289,345 cycles at 8 taps. The
+  accelerator is 926x (SEQ) to 2,587x (PAR) faster at 8 taps, and up to
+  15,818x faster at 32 taps. See
+  [`experiments/sw_baseline/README.md`](../experiments/sw_baseline/README.md).
 
 This file is the single detailed status record the README status banner
 points to. The CI badge at the top of the README is the live CI signal;
@@ -8,10 +38,8 @@ the runs listed below are point-in-time checks.
 
 ## Current HEAD
 
-- Last reviewed against main at `b24474b` ("Merge pull request #9 from
-  Aneeshparveda/feature/vivado-windows-handoff", verified from the
-  repository history in this checkout). That merge adds the Windows Vivado
-  flow, the UART board demo and the evidence tools.
+- Last reviewed against main at `07551d8` ("Merge pull request #10",
+  pre-Vivado audit fixes). This update adds the first board evidence.
 
 ## CI status
 
@@ -52,28 +80,32 @@ the runs listed below are point-in-time checks.
 
 ## What is NOT claimed
 
-- No LUT, DSP, or WNS numbers are claimed — no Vivado run has produced
-  them yet. The README states only a labelled pre-Vivado fit estimate
-  (LANES 16/32 likely exceed the 90 DSP48E1 with all three engines built),
-  not a measurement.
-- No board evidence exists yet: no bitstream SHA-256, no LED observation
-  notes, no UART log from hardware, no dated board photo.
-- The 50/25 MHz MMCM clock option in `rtl/top_basys3.sv` is checked only for
-  elaboration with port stubs; Vivado has not yet synthesized it.
-- No demo GIF, screenshot, or video exists yet.
-- Board LANES is not promised: the board LANES value is chosen after
-  Vivado synthesis utilisation is known. LANES=8 is the candidate, not a
-  promised fit for the XC7A35T; LANES=16/32 are expected to exceed its 90
-  DSP48E1 slices with all three engines built (pre-Vivado estimate).
+- Timing closure at 100 MHz is not claimed. 100 MHz builds miss timing
+  (routed WNS -7.980 ns at LANES=4 and -8.935 ns at LANES=8, from the
+  scripted Vivado 2024.2 run). Only the 50 MHz board build is
+  timing-clean.
+- Only the LANES=8 board build is hardware-verified. LANES=4 at 50 MHz
+  also met timing in Vivado (WNS +0.417 ns) but was not run on the board.
+  LANES=16/32 are not claimed for the board: the core sweep shows the
+  selector needs more than the 90 DSP48E1 slices.
+- The 25 MHz MMCM option has not been built.
+- Power and junction temperature are Vivado estimates. Board current was
+  not measured.
+- No demo video exists yet.
 - The board wrapper default (LANES=8 in `rtl/top_basys3.sv`) and the
   integrated shell default (LANES=32) are source defaults, not fit or
   timing results.
 
 ## Known limitations
 
-- No Vivado synthesis, implementation timing, utilization, DRC, or
-  bitstream generation has been run; FPGA implementation and physical
-  Basys 3 behaviour remain unverified. (README.md status banner)
+- Vivado findings on the 50 MHz board build (advisory; RTL frozen for the
+  board run; see `results/board_2026-11-13/MANIFEST.md`):
+  - DSP48E1 inputs and outputs are not registered (DPIP-1, DPOP-1), which
+    gives the 30-level sequential-engine path.
+  - BRAM control pins are driven by a register with an asynchronous reset
+    (REQP-1839).
+  - A LUT drives the reset synchronizer's asynchronous preset (LUTAR-1).
+  - The unused 7-segment display lights because its pins are not driven.
 - `ARCH_SEL=11` is rejected; no adaptive/Auto policy is implemented.
   (`docs/ACCELERATOR_CONTRACT_V1.md`; `rtl/fir_arch_selector.sv`)
 - The CPU integration is single-master and does not yet implement DMA,

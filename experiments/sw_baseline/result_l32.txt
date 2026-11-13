@@ -1,0 +1,1 @@
+SWFIR taps=32 cycles=81999748 checksum=0x4768415f sig=0x600d600d trap=0 bus_fault=0 accel_busy_seen=0

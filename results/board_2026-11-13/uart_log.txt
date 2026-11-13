@@ -1,0 +1,574 @@
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=102
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024
+NEXUS32 RESULT: PASS
+
+=== NEXUS-32 board demo (PicoRV32 + 3 FIR engines) ===
+build: LANES=8 CLK_MHZ=50 TAP_COUNT=8 SAMPLE_COUNT=1024 golden_checksum=0xb2be7f16
+arch=SEQ     check=PASS cycles_total=14352 compute_cycles=14332 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PAR     check=PASS cycles_total=5136 compute_cycles=5116 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+arch=PIPE    check=PASS cycles_total=9232 compute_cycles=9212 result_count=1024 checksum=0xb2be7f16 status=0x00000002
+NEXUS32 RESULT: PASS
